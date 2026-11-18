@@ -1,12 +1,54 @@
 """Map question spans to existing nodes while preserving ambiguous observations."""
 
 import re
+import unicodedata
 from collections import defaultdict
 
 from .contracts import digest, lookup, require, tokens
 
 
+def _scan_text(text):
+    """NFD + casefold + whitespace normalization with original codepoint spans.
+
+    Canonical combining clusters keep a single original span, so normalization
+    may expand/contract characters without fabricating offsets into the question.
+    """
+    clusters = []
+    current, start, end = "", 0, 0
+    for pos, char in enumerate(text):
+        for part in unicodedata.normalize("NFD", char):
+            if current and not unicodedata.combining(part):
+                clusters.append((current, start, end))
+                current = ""
+            if not current:
+                start = pos
+            current += part
+            end = pos + 1
+    if current:
+        clusters.append((current, start, end))
+    chars, spans = [], []
+    for cluster, start, end in clusters:
+        normalized = unicodedata.normalize("NFD", unicodedata.normalize("NFC", cluster).casefold())
+        for char in normalized:
+            if char.isspace():
+                if not chars:
+                    continue
+                if chars[-1] == " ":
+                    spans[-1] = (spans[-1][0], end)
+                    continue
+                char = " "
+            chars.append(char)
+            spans.append((start, end))
+    if chars and chars[-1] == " ":
+        chars.pop(); spans.pop()
+    return "".join(chars), spans
+
+
 def map_query(index, question, mentions=None, *, question_id=None, answer_need="", query_shape="unknown"):
+    require(isinstance(question, str), "Question must be a string")
+    require(isinstance(answer_need, str), "answer_need must be a string")
+    require(question_id is None or isinstance(question_id, str), "question_id must be a string")
+    require(query_shape in ("single_lookup", "explicit_multi_target", "unknown"), "Invalid query shape")
     registry, aliases = defaultdict(set), defaultdict(set)
     for cue in index.records["cues"]:
         registry[lookup(cue["text"])].add(cue["cue_id"])
@@ -16,9 +58,13 @@ def map_query(index, question, mentions=None, *, question_id=None, answer_need="
     automatic = mentions is None
     if automatic:
         mentions = []
+        normalized_question, offsets = _scan_text(question)
         for surface in sorted(set(registry) | set(aliases), key=lambda s: (-len(s), s)):
-            for match in re.finditer(re.escape(surface), question, flags=re.IGNORECASE):
-                start, end = match.span()
+            normalized_surface = unicodedata.normalize("NFD", surface)
+            for match in re.finditer(re.escape(normalized_surface), normalized_question):
+                start, end = offsets[match.start()][0], offsets[match.end()-1][1]
+                if lookup(question[start:end]) != surface:
+                    continue
                 # Avoid substring matches inside Latin words, but permit CJK adjacency.
                 if start and question[start-1].isascii() and question[start-1].isalnum() and surface[0].isascii() and surface[0].isalnum():
                     continue
@@ -31,7 +77,11 @@ def map_query(index, question, mentions=None, *, question_id=None, answer_need="
             if not any(mention["span_start"] < m["span_end"] and mention["span_end"] > m["span_start"] for m in selected):
                 selected.append(mention)
         mentions = sorted(selected, key=lambda m: m["span_start"])
-    require(query_shape in ("single_lookup", "explicit_multi_target", "unknown"), "Invalid query shape")
+    require(isinstance(mentions, list), "Mentions must be a list")
+    for mention in mentions:
+        require(isinstance(mention, dict), "Each mention must be an object")
+        require(all(k in mention for k in ("span_start", "span_end", "surface_text")), "Mention lacks required span fields")
+        require(isinstance(mention["surface_text"], str), "Mention surface must be a string")
     mapped = []
     entry_count = sum(m.get("role", "entry") == "entry" for m in mentions)
     truncated = entry_count > 24
@@ -64,7 +114,7 @@ def map_query(index, question, mentions=None, *, question_id=None, answer_need="
             candidates = [cid for _, cid in sorted(ranked)[:3]]
             if candidates:
                 status, method = "ambiguous", "lexical_fuzzy"
-        if len(candidates) == 1:
+        if status == "unique":
             cue = index.records["cues"][index.cue_pos[candidates[0]]]
             if cue.get("scope_role") == "scope":
                 role = "scope"

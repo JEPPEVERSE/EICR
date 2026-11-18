@@ -99,6 +99,6 @@ def main(argv=None):
         elif args.command == "audit-splits":
             print(json.dumps(validate_splits(read_json(args.rows))))
         return 0
-    except (ContractError, OSError, TypeError, KeyError) as error:
+    except (ValueError, OSError, TypeError, KeyError) as error:
         print("eicr: " + str(error), file=sys.stderr)
         return 2

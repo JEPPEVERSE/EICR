@@ -17,7 +17,7 @@ def test_provider_explicit_call_and_redacted_trace(monkeypatch):
         requests.append(request)
         body={"choices":[{"finish_reason":"stop","message":{"content":json.dumps({"ok":True})}}],"usage":{"total_tokens":12}}
         return io.BytesIO(json.dumps(body).encode())
-    monkeypatch.setattr("urllib.request.urlopen",fake_urlopen)
+    monkeypatch.setattr("eicr.provider._open_no_redirect",fake_urlopen)
     backend=ChatBackend("https://example.test/v1","explicit-test-model",key_env="EICR_TEST_KEY")
     assert backend.calls==[]
     assert backend.chat_json("system","untrusted question")=={"ok":True}
@@ -31,7 +31,7 @@ def test_provider_error_does_not_expose_body(monkeypatch):
     monkeypatch.setenv("EICR_TEST_KEY","secret")
     def fail(*args,**kwargs):
         raise urllib.error.URLError("provider-response-with-secret")
-    monkeypatch.setattr("urllib.request.urlopen",fail)
+    monkeypatch.setattr("eicr.provider._open_no_redirect",fail)
     backend=ChatBackend("https://example.test/v1","model",key_env="EICR_TEST_KEY")
     with pytest.raises(ContractError) as error:
         backend.chat_json("s","q")

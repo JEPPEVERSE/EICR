@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 
-from .contracts import require
+from .contracts import digest, require
 
 
 def diagnose(index, query_map):
@@ -67,7 +67,8 @@ def diagnose(index, query_map):
         flags.append("IDENTICAL_ROWS_GROUPED")
     entries = [m for m in query_map["mentions"] if m["role"] == "entry"]
     coverage = sum(m["status"] == "unique" for m in entries) / len(entries) if entries else None
-    return {"index_hash": index.index_hash, "profiles": profiles, "groups": groups, "pairs": pairs,
+    return {"index_hash": index.index_hash, "query_map_hash": digest(query_map),
+            "profiles": profiles, "groups": groups, "pairs": pairs,
             "scores": scores, "joint": joint, "flags": flags, "unresolved_entries": unresolved,
             "observed_mapping_coverage": coverage, "effective_groups": len(groups),
             "association_is_probability": False}

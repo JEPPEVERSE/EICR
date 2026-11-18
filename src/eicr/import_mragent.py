@@ -13,6 +13,7 @@ def import_pack(pack, manifest):
     require(manifest.get("extraction_prefix_verified") is True, "Missing extraction provenance attestation")
     owner, snapshot = manifest["owner_id"], manifest["snapshot_id"]
     allowed = set(manifest["allowed_source_ids"])
+    raw_ids = {sid for rows in pack["raw_text"].values() for sid in rows}
     sources = []
     for session, rows in pack["raw_text"].items():
         for sid, text in rows.items():
@@ -39,6 +40,9 @@ def import_pack(pack, manifest):
                 if isinstance(origins, str):
                     origins = [x.strip() for x in origins.split(",") if x.strip()]
                 require(all(re.fullmatch(r"[^\s,]+:\d+", o) for o in origins), "Unrecognized native origin")
+                require(bool(origins) and set(origins) <= raw_ids, "Native fact references a missing raw source")
+                if not set(origins) <= allowed:
+                    continue
                 topics = fact.get("topic") or []
                 if isinstance(topics, str):
                     topics = [topics]
@@ -55,6 +59,7 @@ def import_pack(pack, manifest):
                 })
         session_facts.append((session, local))
     cues, edges = {}, []
+    allowed_facts = {f["evidence_id"] for f in facts}
     for pos, record in enumerate(keyword_records):
         session, local = session_facts[pos]
         if record is None:
@@ -66,6 +71,8 @@ def import_pack(pack, manifest):
         for row in record["sentence"]:
             fid = row["sentence_id"]
             require(fid in local, "Keyword sentence does not belong to corresponding rewrite session")
+            if fid not in allowed_facts:
+                continue
             for text in row.get("keyword") or []:
                 require(isinstance(text, str) and text.strip(), "Invalid keyword")
                 cid = identifier("cue", [owner, text])

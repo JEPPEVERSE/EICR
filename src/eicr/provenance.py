@@ -29,45 +29,68 @@ def prepare_snapshot(snapshot):
     dataset owner. This checks consistency; it cannot verify an untrue attestation.
     """
     data = deepcopy(snapshot)
+    require(isinstance(data, dict), "Snapshot must be an object")
     for key in ("owner_id", "snapshot_id", "sources", "cues", "evidence", "edges", "provenance"):
         require(key in data, "Missing snapshot field: " + key)
     provenance = data["provenance"]
+    require(isinstance(provenance, dict), "Snapshot provenance must be an object")
+    for key in ("owner_id", "snapshot_id"):
+        require(isinstance(data[key], str) and data[key], "Invalid snapshot identity")
+    for key in ("sources", "cues", "evidence", "edges", "source_links", "context_links"):
+        require(isinstance(data.get(key, []), list), key + " must be a list")
+        for record in data.get(key, []):
+            require(isinstance(record, dict), key + " records must be objects")
+            require(record.get("owner_id", data["owner_id"]) == data["owner_id"], "Cross-owner " + key + " record")
+            require(record.get("snapshot_id", data["snapshot_id"]) == data["snapshot_id"], "Cross-snapshot " + key + " record")
     require(provenance.get("extraction_prefix_verified") is True, "Extraction prefix is not verified")
-    allowed = set(provenance.get("allowed_source_ids", []))
+    def string_list(value, label):
+        require(isinstance(value, list) and all(isinstance(v, str) and v for v in value), label + " must be a list of nonempty strings")
+        return value
+    allowed = set(string_list(provenance.get("allowed_source_ids", []), "Allowed sources"))
     sources = {}
     for source in data["sources"]:
         sid = source["source_id"]
+        require(isinstance(sid, str) and sid and not any(ord(c) < 32 for c in sid), "Invalid source ID")
         require(sid not in sources, "Duplicate source ID: " + sid)
         require(source.get("owner_id", data["owner_id"]) == data["owner_id"], "Cross-owner source")
         require(isinstance(source.get("text"), str), "Source text must be a string")
         sources[sid] = source
     require(allowed <= sources.keys(), "Allowed source is missing")
+    known_sources = set(sources)
     sources = {k: v for k, v in sources.items() if k in allowed}
     cues = {}
     for cue in data["cues"]:
         cid = cue["cue_id"]
+        require(isinstance(cid, str) and cid, "Invalid cue ID")
         require(cid not in cues, "Duplicate cue ID: " + cid)
         require(isinstance(cue.get("text"), str) and normalize(cue["text"]), "Empty cue")
         require(cue.get("owner_id", data["owner_id"]) == data["owner_id"], "Cross-owner cue")
-        require(set(cue.get("extraction_source_ids", [])) <= allowed, "Cue derived from future source")
+        require(set(string_list(cue.get("extraction_source_ids", []), "Cue extraction sources")) <= allowed, "Cue derived from future source")
+        require(cue.get("scope_role", "entry") in ("entry", "scope"), "Invalid cue scope role")
         # Aliases are explicit records with their own allowed provenance.
+        require(isinstance(cue.get("aliases", []), list), "Aliases must be a list")
         for alias in cue.get("aliases", []):
-            require(isinstance(alias, dict) and alias.get("text"), "Alias requires text and provenance")
-            require(bool(alias.get("source_ids")) and set(alias["source_ids"]) <= allowed, "Illegal alias provenance")
+            require(isinstance(alias, dict) and isinstance(alias.get("text"), str) and normalize(alias["text"]), "Alias requires text and provenance")
+            require(bool(alias.get("source_ids")) and set(string_list(alias["source_ids"], "Alias sources")) <= allowed, "Illegal alias provenance")
         cues[cid] = cue
     evidence, native_map, seen_native, dedup = {}, {}, set(), {}
     excluded = []
     for fact in data["evidence"]:
         eid = fact["evidence_id"]
+        require(isinstance(eid, str) and eid, "Invalid fact ID")
         require(eid not in seen_native, "Duplicate native fact ID: " + eid)
         seen_native.add(eid)
-        origins = sorted(set(fact.get("origins", [])))
+        origins = sorted(set(string_list(fact.get("origins", []), "Fact origins")))
         require(origins, "Fact has no source: " + eid)
+        require(set(origins) <= known_sources, "Fact references a missing raw source: " + eid)
         if not set(origins) <= allowed:
             excluded.append(eid)
             continue
         require(isinstance(fact.get("text"), str) and normalize(fact["text"]), "Empty rewrite")
         metadata = fact.get("metadata", {})
+        require(isinstance(metadata, dict), "Fact metadata must be an object")
+        fact["tags"] = sorted(set(string_list(fact.get("tags", []), "Fact tags")))
+        fact["topics"] = sorted(set(string_list(fact.get("topics", []), "Fact topics")))
         key = digest([origins, normalize(fact["text"]), metadata, sorted(fact.get("tags", [])), sorted(fact.get("topics", []))])
         if key not in dedup:
             new_id = identifier("e", [data["owner_id"], key])
@@ -81,7 +104,7 @@ def prepare_snapshot(snapshot):
         cid, native = edge["cue_id"], edge["evidence_id"]
         require(cid in cues, "Dangling cue edge: " + cid)
         require(native in seen_native, "Dangling fact edge: " + native)
-        require(edge.get("weight", 1) == 1, "v1 direct incidence must be binary")
+        require(type(edge.get("weight", 1)) in (int, float) and edge.get("weight", 1) == 1, "v1 direct incidence must be binary")
         require(edge.get("edge_origin", "native_keyword") in ("native_keyword", "owner_injected"), "Derived edge in direct R")
         if native not in native_map:
             continue

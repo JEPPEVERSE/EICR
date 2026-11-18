@@ -22,7 +22,7 @@ class TiktokenTokenizer:
         self.encoding = tiktoken.get_encoding(encoding)
         # Content fingerprint pins the effective vocabulary, not a moving model alias.
         vocab = sorted((key.hex(), rank) for key, rank in self.encoding._mergeable_ranks.items())
-        self.identity = "tiktoken:" + encoding + ":" + digest([vocab, self.encoding._special_tokens])
+        self.identity = "tiktoken:" + encoding + ":" + digest([vocab, self.encoding._special_tokens, self.encoding._pat_str])
 
     def count(self, text):
         return len(self.encoding.encode(text, disallowed_special=()))
@@ -49,9 +49,11 @@ def chunk_sources(sources, tokenizer, max_tokens=384, overlap_tokens=32):
                     hi = mid - 1
             end = best
             if end < len(text):
-                boundaries = [m.end() + start for m in re.finditer(r"[.!?。！？\n](?:\s|$)", text[start:end])]
-                if boundaries and boundaries[-1] > start + (end-start)//2:
-                    end = boundaries[-1]
+                boundaries = [m.end() + start for m in re.finditer(r"[.!?](?:\s|$)|[。！？\n]", text[start:end])]
+                for boundary in reversed(boundaries):
+                    if boundary > start + (end-start)//2 and tokenizer.count(text[start:boundary]) <= max_tokens:
+                        end = boundary
+                        break
             require(end > start and tokenizer.count(text[start:end]) <= max_tokens, "Chunk cap violated")
             chunks.append({"span_id": digest([sid, start, end])[:24], "source_id": sid,
                            "start": start, "end": end, "text": text[start:end]})
@@ -88,6 +90,7 @@ def pack_sources(queues, sources, tokenizer, quotas, question_id):
     require(set(queues) == set(quotas), "Queue/quota mismatch")
     require("original" in queues and set(queues) <= {"original", "core", "answer_need", "independent_cue", "side_a", "side_b"}, "Unknown evidence queues")
     require(("side_a" in queues) == ("side_b" in queues), "Symmetric sides must occur together")
+    require("side_a" not in queues or set(queues) == {"original", "side_a", "side_b"}, "Symmetric mode cannot contain other queues")
     require(all(type(q) is int and q >= 0 for q in quotas.values()), "Invalid quotas")
     source_map = {s["source_id"]: s for s in sources}
     # Validate every candidate before any budget filtering, including skipped ones.

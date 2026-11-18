@@ -22,6 +22,9 @@ class IndexConfig:
     weight_mode: str = "source_family"
 
     def __post_init__(self):
+        require(type(self.structure) is bool, "structure must be a boolean")
+        require(isinstance(self.explicit_link_types, tuple) and all(isinstance(t, str) and t for t in self.explicit_link_types),
+                "explicit_link_types must be a tuple of nonempty strings")
         for name in ("beta", "lambda_"):
             finite_unit(getattr(self, name), name, closed=False)
         for name in ("topic_max_fraction", "topic_strength", "min_strength"):
@@ -37,7 +40,9 @@ class IndexConfig:
 
     @classmethod
     def from_dict(cls, value):
+        require(isinstance(value, dict), "Index config must be an object")
         value = dict(value)
         if "explicit_link_types" in value:
+            require(isinstance(value["explicit_link_types"], (list, tuple)), "explicit_link_types must be a list")
             value["explicit_link_types"] = tuple(value["explicit_link_types"])
         return cls(**value)

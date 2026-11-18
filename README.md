@@ -18,6 +18,8 @@ Cue 是已有的语义标签。其向量来自 cue–evidence 关联，不通过
 
 当前是研究实现。未选择开发集路由阈值、未宣称概率校准，也未运行真实模型效果实验。默认路由 `ORIGINAL`，仍输出全部可用诊断。历史设计文档保留其当时的“尚未实现”状态；实现与规格的对应和边界见 [实现说明](docs/implementation.md)。
 
+`0.1.1` 修复了结构索引保存、跨问题诊断混用、来源隔离、HTTP 重定向认证头风险及多项输入/预算问题，见 [代码复核报告](docs/review_20261118.md)。索引格式升级为 `eicr-index-2`，策略格式为 `eicr-policy-2`；请重建旧索引、策略和 dense bundle。已存在的输出不会自动覆盖。
+
 ## 安装与验证
 
 需要 Python ≥3.10。
@@ -116,6 +118,8 @@ eicr run --index artifacts/conversation --question 'Your original question' \
 
 仅指定 `--llm-frontend` / `--generate` 才会调用相应接口。默认每次最多一次回答，前端最多一次格式重试。模型、endpoint、凭证环境变量由用户明确提供；代码不读取本地 `.env`、不写凭证。兼容接口须支持 JSON object 与 `max_tokens`。问题与记忆会发往该显式指定的 endpoint。
 
+HTTP 重定向一律拒绝，需填写服务的最终 API 地址。网络/认证配置失败不作为格式错误重试；响应体默认上限4 MiB，仅接受正常完成的 JSON 对象。最终原文块按装包结果原样交给模型，队列归因留在本地 trace。
+
 默认检索是 BM25，输出会标 `bm25_only`；不会声称已运行 dense RAG。启用 hybrid 时传 `--dense bundle.npz --dense-manifest bundle.json`。bundle 的数组为 `chunk_vectors` 和 `query_vector`；manifest 须含 `npz_sha256`、`index_hash`、`tokenizer`、`chunk_order_hash`、`question_hash`、`dense_identity`。生成方式见 [实现说明](docs/implementation.md)。
 
 ## 文档与研究边界
@@ -125,6 +129,7 @@ eicr run --index artifacts/conversation --question 'Your original question' \
 - [历史设计参数](docs/design_defaults.json)：不是可执行 IndexConfig。
 - [实现对应、接口与限制](docs/implementation.md)
 - [验证报告](docs/validation.md)
+- [0.1.1 代码复核与修复记录](docs/review_20261118.md)
 
 离线评价只汇总外部审定的 `correct` 标签，`audit-splits` 检查 memory/question-family 泄漏；不会以词面重叠假装完整 QA 评测，也不会从无标签数据产生错误概率。
 

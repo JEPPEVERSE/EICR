@@ -3,5 +3,5 @@
 from .config import IndexConfig
 from .index import Index, build_index, load_index, save_index
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = ["IndexConfig", "Index", "build_index", "load_index", "save_index"]

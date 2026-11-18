@@ -1,6 +1,10 @@
 """Frozen development-selected thresholds govern bounded checks; default is off."""
 
+from copy import deepcopy
+
 from .contracts import digest, finite_unit, require
+
+POLICY_SCHEMA = "eicr-policy-2"
 
 QUOTAS = {
     "ORIGINAL": {"original": 6000},
@@ -10,6 +14,7 @@ QUOTAS = {
 
 
 def freeze_policy(index, thresholds, selection_manifest):
+    require(isinstance(thresholds, dict) and isinstance(selection_manifest, dict), "Policy inputs must be objects")
     require(selection_manifest.get("status") == "development_selected", "Policy needs a development-selection manifest")
     for key in ("development_split_hash", "selection_rule", "grouping", "confirmation_untouched"):
         require(bool(selection_manifest.get(key)), "Missing policy provenance: " + key)
@@ -17,30 +22,40 @@ def freeze_policy(index, thresholds, selection_manifest):
     require(set(thresholds) == {"tau_delta", "tau_core", "tau_margin", "tau_pair"}, "Incomplete policy thresholds")
     for key, value in thresholds.items():
         finite_unit(value, key)
-    value = {"schema": "eicr-policy-1", "enabled": True, "index_hash": index.index_hash,
-             "thresholds": thresholds, "selection_manifest": selection_manifest}
+    value = {"schema": POLICY_SCHEMA, "enabled": True, "index_hash": index.index_hash,
+             "thresholds": deepcopy(thresholds), "selection_manifest": deepcopy(selection_manifest)}
     return {**value, "policy_hash": digest(value)}
 
 
 def choose_route(index, query_map, diagnostics, policy=None):
     require(diagnostics["index_hash"] == index.index_hash == query_map["index_hash"], "Incompatible route inputs")
+    require(diagnostics.get("query_map_hash") == digest(query_map), "Query map does not match diagnostics")
     result = {"question_id": query_map["question_id"], "snapshot_id": query_map["snapshot_id"],
               "index_hash": index.index_hash, "policy_hash": None, "mode": "ORIGINAL", "selected_cue_id": None,
+              "query_map_hash": digest(query_map), "diagnostics_hash": digest(diagnostics),
               "group_ids": [], "reasons": [], "observed_mapping_coverage": diagnostics["observed_mapping_coverage"]}
     def finish(reason):
         result["reasons"].append(reason)
         result["quotas"] = dict(QUOTAS[result["mode"]])
         result["evidence_budget_tokens"] = 6000
         return result
-    if not policy or not policy.get("enabled"):
+    if policy is not None and not isinstance(policy, dict):
+        return finish("POLICY_INCOMPATIBLE")
+    if not policy or policy.get("enabled") is False:
         return finish("POLICY_DISABLED")
+    if policy.get("enabled") is not True:
+        return finish("POLICY_INCOMPATIBLE")
     body = {k: v for k, v in policy.items() if k != "policy_hash"}
-    if policy.get("schema") != "eicr-policy-1" or policy.get("index_hash") != index.index_hash or digest(body) != policy.get("policy_hash"):
+    if policy.get("schema") != POLICY_SCHEMA or policy.get("index_hash") != index.index_hash or digest(body) != policy.get("policy_hash"):
         return finish("POLICY_INCOMPATIBLE")
     result["policy_hash"] = policy["policy_hash"]
     thresholds = policy.get("thresholds", {})
+    if not isinstance(thresholds, dict):
+        return finish("POLICY_INCOMPATIBLE")
     if any(thresholds.get(k) is None for k in ("tau_delta", "tau_core", "tau_margin", "tau_pair")):
         return finish("POLICY_UNCONFIGURED")
+    if set(thresholds) != {"tau_delta", "tau_core", "tau_margin", "tau_pair"}:
+        return finish("POLICY_INCOMPATIBLE")
     try:
         for key, value in thresholds.items():
             finite_unit(value, key)

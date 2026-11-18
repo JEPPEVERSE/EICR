@@ -6,23 +6,32 @@ from .contracts import ContractError, digest, require
 from .diagnostics import diagnose
 from .packer import chunk_sources, pack_sources
 from .policy import choose_route
-from .provider import ANSWER_PROMPT, FRONTEND_PROMPT
+from .provider import ANSWER_PROMPT, FRONTEND_PROMPT, ProviderTransportError
 from .query_map import map_query
 from .retrieval import SharedRetriever, collect_candidates
 
 
 def answer_from_sources(question, packet, backend):
-    result = backend.chat_json(ANSWER_PROMPT, json.dumps({"question": question, "sources": packet["text"], "allowed_spans": packet["spans"]}, ensure_ascii=False))
+    require(isinstance(packet.get("text"), str) and digest(packet["text"]) == packet.get("text_hash"), "Evidence packet text hash mismatch")
+    # The counted source block reaches the model verbatim. JSON-encoding it here
+    # would inflate its tokens; exposing queue attribution would reveal the route.
+    user = "Original question (JSON):\n" + json.dumps(question, ensure_ascii=False) + "\n\nRaw memory sources:\n" + packet["text"]
+    result = backend.chat_json(ANSWER_PROMPT, user)
+    require(isinstance(result, dict), "Answer must be an object")
     require(isinstance(result.get("answer_text"), str), "Answer lacks text")
     require(isinstance(result.get("citations"), list) and isinstance(result.get("unsupported_premises"), list), "Invalid answer lists")
+    require(all(isinstance(item, str) for item in result["unsupported_premises"]), "Unsupported premises must be strings")
     require(result.get("resolution_status") in ("supported", "conflicting", "insufficient"), "Invalid resolution status")
     for citation in result["citations"]:
+        require(isinstance(citation, dict), "Citation must be an object")
         require(all(k in citation for k in ("source_id", "start", "end")), "Citation lacks span")
+        require(isinstance(citation["source_id"], str), "Citation source ID must be a string")
         require(type(citation["start"]) is int and type(citation["end"]) is int and citation["start"] < citation["end"], "Invalid citation coordinates")
         require(any(s["source_id"] == citation["source_id"] and s["start"] <= citation["start"] < citation["end"] <= s["end"] for s in packet["spans"]), "Citation is outside visible evidence")
     if result["resolution_status"] == "supported":
+        require(bool(result["answer_text"].strip()), "Supported answer must not be empty")
         require(bool(result["citations"]), "Supported answer requires a visible citation")
-    return result
+    return {key: result[key] for key in ("answer_text", "citations", "unsupported_premises", "resolution_status")}
 
 
 def run(index, question, tokenizer, *, mentions=None, answer_need="", query_shape="unknown", question_id=None,
@@ -34,11 +43,17 @@ def run(index, question, tokenizer, *, mentions=None, answer_need="", query_shap
         for attempt in range(2):
             try:
                 parsed = frontend_backend.chat_json(FRONTEND_PROMPT, json.dumps({"question": question}, ensure_ascii=False))
+                require(isinstance(parsed, dict), "Frontend response must be an object")
                 require(isinstance(parsed.get("mentions"), list), "Frontend lacks mentions")
                 require(isinstance(parsed.get("answer_need", ""), str), "Invalid frontend answer_need")
                 query = map_query(index, question, parsed["mentions"], question_id=question_id,
                                   answer_need=parsed.get("answer_need", ""), query_shape=parsed.get("query_shape", "unknown"))
                 query["frontend_basis"] = "explicit_llm_spans"
+                break
+            except ProviderTransportError as error:
+                frontend_error = type(error).__name__
+                query = map_query(index, question, [], question_id=question_id)
+                query["frontend_error"] = frontend_error
                 break
             except (ContractError, KeyError, TypeError) as error:
                 frontend_error = type(error).__name__

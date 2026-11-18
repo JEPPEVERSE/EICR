@@ -13,6 +13,8 @@ from .contracts import digest, read_json, require, write_json
 from .neighbors import build_transition
 from .provenance import prepare_snapshot
 
+INDEX_SCHEMA = "eicr-index-2"
+
 
 def row_norms(matrix):
     return np.sqrt(np.asarray(matrix.multiply(matrix).sum(axis=1)).ravel())
@@ -119,13 +121,13 @@ def _build_records(records, config):
               "family_sizes": dict(sorted(counts.items())), "nnz_R": r.nnz, "nnz_Y": y.nnz,
               "expansion_ratio": y.nnz / r.nnz if r.nnz else 0.0,
               "zero_cues": int(np.count_nonzero(row_norms(x) == 0))}
-    identity = digest({"schema": "eicr-index-1", "records": records, "config": config.to_dict()})
+    identity = digest({"schema": INDEX_SCHEMA, "records": records, "config": config.to_dict()})
     return Index(records, config, r, x, y, p, t, weights, neighbors, report, identity)
 
 
 def audit_index(index):
     """Fail closed on changed matrices, records or configuration."""
-    require(index.index_hash == digest({"schema": "eicr-index-1", "records": index.records, "config": index.config.to_dict()}), "Index identity mismatch")
+    require(index.index_hash == digest({"schema": INDEX_SCHEMA, "records": index.records, "config": index.config.to_dict()}), "Index identity mismatch")
     expected = _build_records(index.records, index.config)
     for name in ("R", "X", "Y", "P", "T"):
         matrix = getattr(index, name)
@@ -140,7 +142,7 @@ def audit_index(index):
         require(np.allclose(np.asarray(index.P.sum(axis=1)).ravel(), 1), "P is not stochastic")
         require(np.allclose(np.asarray(index.T.sum(axis=1)).ravel(), 1), "T is not stochastic")
         require(np.isclose(index.weights.sum(), 1), "Weight sum is not one")
-    return {"status": "passed", "index_hash": index.index_hash, **index.report}
+    return {**index.report, "index_status": index.report["status"], "status": "passed", "index_hash": index.index_hash}
 
 
 def save_index(index, folder):
@@ -155,14 +157,15 @@ def save_index(index, folder):
         save_npz(folder / (name + ".npz"), getattr(index, name))
     np.save(folder / "weights.npy", index.weights, allow_pickle=False)
     files = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(folder.iterdir())}
-    write_json(folder / "manifest.json", {"schema": "eicr-index-1", "index_hash": index.index_hash,
+    write_json(folder / "manifest.json", {"schema": INDEX_SCHEMA, "index_hash": index.index_hash,
                                          "config": index.config.to_dict(), "files_sha256": files})
 
 
 def load_index(folder):
     folder = Path(folder)
     manifest = read_json(folder / "manifest.json")
-    require(manifest.get("schema") == "eicr-index-1", "Unknown index schema")
+    require(isinstance(manifest, dict) and manifest.get("schema") == INDEX_SCHEMA,
+            "Unsupported index schema; rebuild the index with the current version")
     expected_files = {"records.json", "neighbors.json", "build_report.json", "weights.npy", "R.npz", "X.npz", "Y.npz", "P.npz", "T.npz"}
     require(set(manifest["files_sha256"]) == expected_files, "Incomplete index file manifest")
     for name, sha in manifest["files_sha256"].items():

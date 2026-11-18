@@ -1,6 +1,6 @@
 # 实现说明
 
-实现版本：0.1.0，2026-11-18。详细规格保留为历史设计；此文说明实际运行合同。
+实现版本：0.1.1，2026-11-18。详细规格保留为历史设计；此文说明实际运行合同。
 
 ## 索引与接口
 
@@ -21,6 +21,8 @@ result = run(index, question, CharacterTokenizer())  # 仅示例字符计数
 
 索引包含 `manifest.json`、标准化 `records.json`、`neighbors.json`、`build_report.json`、R/X/Y/P/T 稀疏 NPZ 和 `weights.npy`。记录内保存原文、来源根、来源族、事实原 ID、直接边与元数据。文件布局合并了设计中的多张 JSONL 表，但保留其审计字段。每次加载验证文件哈希，并由冻结记录重算矩阵、权重和报告；不信任不匹配的缓存。此严格加载会有重建成本，暂不提供跳过审计的快速模式。
 
+当前格式为 `eicr-index-2`，格式身份参与 index hash；旧版索引须从冻结输入重新构建。邻域加权求和按排序后的 topic 用稳定累加计算，避免不同进程的集合迭代顺序改变边的排名和审计记录。`audit-index` 的 `status` 为 `passed`，原索引状态另存 `index_status`。
+
 图和元数据只属于一个 owner/snapshot；不实现增量追加。配置 `weight_mode="uniform"` 提供等权直接证据对照，默认 `source_family`。没有来源事实的原始 source 不占据向量质量，但仍可被原文检索。
 
 分面：当前 importer 使用 fact 上已有 tags，均分多 tag 质量；保留的原生结构是每条 cue–fact 关联与其 fact tags。自定义每条三元边分配权重尚未提供输入接口；不要声称已支持任意 cue 特定的 facet 权重。topic 与 tag 分离，tag 不进入默认邻域。
@@ -33,7 +35,11 @@ result = run(index, question, CharacterTokenizer())  # 仅示例字符计数
 
 `diagnose` 输出小规模 pairwise、直接来源贡献、coverage/J、相同行分组与 Delta。owner/scope、零表示、覆盖全库的零信息节点不参与。相同行分组不是同义词合并，不改变离线图。
 
+诊断绑定完整 query map 的哈希，路由同时绑定 query map 与诊断哈希。即使使用同一 index，也拒绝把另一问题的诊断或 route 混入取证。字面扫描支持 Unicode 规范化、casefold 和重复空白，并保持原始 offset；仅模糊匹配到 scope 候选时仍算未解决 entry，不允许从映射检查中静默消失。
+
 `freeze_policy` 检查阈值范围及选择记录，再绑定确切 index hash。它是冻结工具，不是开发集网格搜索器。未提供标签、分组数据和调参目标时，自动选择一套阈值会违背设计，因此未启用。概率校准、自动替换 cue 和多跳取证均未实现。
+
+当前策略格式为 `eicr-policy-2`；旧策略或字段类型错误的策略回到 ORIGINAL。可疑 cue 选择仍使用固定的数学公式，不能由这次工程修复推断方法准确率已有提升。
 
 ## Dense bundle
 
@@ -61,13 +67,21 @@ write_json("bundle.json", {
 
 CLI 验证 NPZ 哈希；pipeline 验证索引、tokenizer、顺序、问题与编码器身份。向量非有限、零向量或维度不匹配均报错。固定 RRF k=60。没有 dense bundle 时只运行 BM25，并如实记录 backend。
 
+Tiktoken 身份包含词表、特殊 token 和分词正则规则；升级后旧 dense manifest 需重建。归一化先按每行最大绝对值缩放，避免合法的大/小有限数在范数计算时溢出或下溢。
+
 ## 预算、回答与费用
 
 分块按原文字符 offset 保存，实际大小由指定计数器检查。优先句界，过长句可切成 token 限制内的文本跨度。候选上限256，按队列合同排序，独立队列按来源族轮转。
 
+CORE 排名依据一条实际事实共同支持的 cue 数及权重。同一原 turn 中的多个不同事实不会通过合并 cue 并集制造共同见证；来源层并集单列为 `source_cue_union`，事实支撑列为 `supporting_fact_ids`。没有精准跨度映射时标记 `support_localization="origin_only"`，不宣称事实已定位到每一个原文块。
+
 装包器只对选中区间做增量合并。预算按来源标签、文本和间隔的最终整体渲染计数，≤配额之和。重叠合并有时会减少标签/BPE token，账本保留负增量；每队列 `charged_positive_increments` 不是最终总 token 的可加分解，最终 `used_tokens` 才是权威总量。问题、系统提示和模型输出另记。每条入选跨度保存全部队列归因，未入包记录原因。
 
+原文块在最终 user message 中原样出现，不再先做 JSON 字符串转义；这使装包时计算的文本与模型实际看到的来源文本一致。问题和包外说明仍是额外提示开销，6000上限仅针对来源块。队列归因、路由标签和用于验证的内部 spans 表不再额外传给回答模型，引用合法性在本地检查。
+
 OpenAI-compatible backend 接受显式 HTTPS endpoint（本地 localhost 可用 HTTP）、model、凭证环境变量、timeout 和输出上限。默认输出上限2048。无隐式网络调用；此接口只执行前端与最终回答，不自动调用 embedding 或评价服务。调用 usage 由 provider 返回并脱敏保存；若 provider 没有提供 usage，不伪造实际费用。
+
+禁止全部 HTTP 重定向，避免认证头离开指定 endpoint；响应最多读取配置上限加一字节，默认4 MiB，超限拒绝。仅保存 usage 中列举的非负整数 token 计数字段，拒绝 NaN/Infinity、异常 choices/content 与非正常终止。格式校验失败可触发一次前端格式重试，网络/地址/认证配置错误直接降级，不进行格式重试。
 
 最终回答引用必须位于实际可见原文跨度内。引用合法只证明引用范围合法，不能证明回答语义正确；需要独立评价。当前回答格式错误即失败，不自动多次重答。
 

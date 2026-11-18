@@ -5,7 +5,16 @@ from collections import Counter, defaultdict
 
 import numpy as np
 
-from .contracts import require, tokens
+from .contracts import digest, require, tokens
+
+
+def _unit_rows(array):
+    """Scale before squaring to avoid overflow/underflow for finite vectors."""
+    require(array.ndim == 2 and array.shape[1] > 0 and np.isfinite(array).all(), "Invalid dense vectors")
+    scale = np.max(np.abs(array), axis=1)
+    require((scale > 0).all(), "Dense vectors must be nonzero")
+    scaled = array / scale[:, None]
+    return scaled / np.linalg.norm(scaled, axis=1)[:, None]
 
 
 class SharedRetriever:
@@ -19,12 +28,11 @@ class SharedRetriever:
         if dense_vectors is not None:
             array = np.asarray(dense_vectors, dtype=np.float64)
             require(array.ndim == 2 and len(array) == len(chunks) and np.isfinite(array).all(), "Invalid dense chunk matrix")
-            norms = np.linalg.norm(array, axis=1)
-            require((norms > 0).all() and bool(dense_identity), "Dense vectors need nonzero norms and a model identity")
-            self.dense = array / norms[:, None]
+            require(bool(dense_identity), "Dense vectors need a model identity")
+            self.dense = _unit_rows(array)
 
     def lexical_scores(self, query):
-        terms = set(tokens(query))
+        terms = sorted(set(tokens(query)))
         scores = []
         n = len(self.chunks)
         for counts in self.term_counts:
@@ -45,8 +53,8 @@ class SharedRetriever:
             return [dict(self.chunks[i], retrieval_score=lexical[i]) for i in lex_order[:limit]]
         require(self.dense is not None, "Query vector without a dense chunk index")
         vector = np.asarray(query_vector, dtype=np.float64)
-        require(vector.shape == (self.dense.shape[1],) and np.isfinite(vector).all() and np.linalg.norm(vector) > 0, "Invalid query vector")
-        similarity = self.dense @ (vector / np.linalg.norm(vector))
+        require(vector.shape == (self.dense.shape[1],) and np.isfinite(vector).all(), "Invalid query vector")
+        similarity = self.dense @ _unit_rows(vector[None, :])[0]
         dense_order = sorted(range(len(self.chunks)), key=lambda i: (-similarity[i], self.chunks[i]["span_id"]))[:limit]
         fused = defaultdict(float)
         for order in (lex_order[:limit], dense_order):
@@ -57,7 +65,9 @@ class SharedRetriever:
 
 
 def collect_candidates(index, query_map, diagnostics, route, retriever, query_vector=None):
-    require(route["index_hash"] == index.index_hash, "Route/index mismatch")
+    require(route["index_hash"] == diagnostics["index_hash"] == query_map["index_hash"] == index.index_hash, "Route/index mismatch")
+    require(route.get("query_map_hash") == diagnostics.get("query_map_hash") == digest(query_map), "Query map mismatch in retrieval")
+    require(route.get("diagnostics_hash") == digest(diagnostics), "Route diagnostics mismatch")
     question = query_map["original_question"]
     queues = {"original": retriever.rank(question, query_vector)}
     trace = {"retriever": "dense_bm25_rrf" if retriever.dense is not None else "bm25_only", "online_graph_hops": 0,
@@ -102,19 +112,31 @@ def collect_candidates(index, query_map, diagnostics, route, retriever, query_ve
         queues["independent_cue"] = independent([selected])
         remaining = [g for g in groups if selected not in g["members"]]
         source_support = {}
+        total_weight = sum(g["weight"] for g in remaining)
         for j, fact in enumerate(facts):
             supporters = [g for g in remaining if index.R[index.cue_pos[g["representative"]], j] > 0]
             if supporters:
+                support = {g["representative"]: g["weight"] for g in supporters}
+                rank = (len(support), sum(support.values()))
                 for origin in fact["origins"]:
-                    # Union group support at raw origin; do not count multiple facts as multiple votes.
-                    state = source_support.setdefault(origin, {})
-                    state.update({g["representative"]: g["weight"] for g in supporters})
+                    state = source_support.setdefault(origin, {"union": set(), "rank": (-1, -1), "support": {}, "facts": []})
+                    state["union"].update(support)
+                    # Different facts in a single turn do not form a common fact
+                    # witness. Rank the source by its best actual fact support.
+                    if rank > state["rank"]:
+                        state.update(rank=rank, support=support, facts=[fact["evidence_id"]])
+                    elif rank == state["rank"] and support == state["support"]:
+                        state["facts"].append(fact["evidence_id"])
         lexical = retriever.lexical_scores(query_map.get("answer_need", ""))
         core = []
         for i, chunk in enumerate(retriever.chunks):
-            support = source_support.get(chunk["source_id"], {})
-            if support:
-                core.append(dict(chunk, support_cues=sorted(support), support_count=len(support), support_weight=sum(support.values()), lexical_score=lexical[i]))
+            state = source_support.get(chunk["source_id"])
+            if state:
+                support = state["support"]
+                core.append(dict(chunk, support_cues=sorted(support), support_count=len(support),
+                                 support_weight=sum(support.values()) / total_weight if total_weight else 0.0,
+                                 supporting_fact_ids=state["facts"], source_cue_union=sorted(state["union"]),
+                                 support_localization="origin_only", lexical_score=lexical[i]))
         core.sort(key=lambda c: (-c["support_count"], -c["support_weight"], -c["lexical_score"], c["span_id"]))
         queues["core"] = core[:256]
         scores = retriever.lexical_scores(query_map.get("answer_need", ""))

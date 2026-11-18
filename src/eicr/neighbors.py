@@ -48,7 +48,9 @@ def build_transition(records, config):
         for j in candidates:
             common = retained[i] & retained[j]
             union = retained[i] | retained[j]
-            jac = sum(idf[t] for t in common) / sum(idf[t] for t in union) if union else 0.0
+            # Set iteration order varies between processes. Stable reductions are
+            # essential because retained edge metadata is audited on every load.
+            jac = math.fsum(idf[t] for t in sorted(common)) / math.fsum(idf[t] for t in sorted(union)) if union else 0.0
             is_explicit = j in permitted_explicit
             strength = max(1.0 if is_explicit else 0.0, config.topic_strength * jac)
             if strength >= config.min_strength and strength > 0:
@@ -57,7 +59,7 @@ def build_transition(records, config):
         keep = scores[:config.neighbors]
         pruned += len(candidates) - len(keep)
         r = max((s[1] for s in keep), default=0.0)
-        total = sum(s[1] for s in keep)
+        total = math.fsum(s[1] for s in keep)
         rows.append(i); cols.append(i); values.append(1.0 - r)
         for rank, (j, strength, common, is_explicit) in enumerate(scores):
             selected = rank < config.neighbors
@@ -76,5 +78,5 @@ def build_transition(records, config):
         "structure_active": active, "eligible_topics": len(eligible),
         "topic_df_bound": bound, "excluded_hub_topics": sum(len(ids) > bound for ids in members.values()),
         "ignored_topic_memberships": ignored_topics, "pruned_candidates": pruned,
-        "expanded_evidence_rows": sum(p.indptr[i + 1] - p.indptr[i] > 1 for i in range(n))
+        "expanded_evidence_rows": sum(bool(p.indptr[i + 1] - p.indptr[i] > 1) for i in range(n))
     }
