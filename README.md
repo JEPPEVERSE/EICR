@@ -1,0 +1,135 @@
+# EICR
+
+Evidence-Induced Cue Representation：从已有 cue 的下游证据计算稀疏表示，用于入口扰动下的关联诊断与有限预算查证。
+
+Cue 是已有的语义标签。其向量来自 cue–evidence 关联，不通过 cue 文字的 embedding 编码器生成。一个 cue 可以同时连接多个情境；系统不要求先构造完整事件实体。Cosine 表示这份记忆中的证据关联，不能直接解释成入口错误概率或同事件概率。
+
+## 已实现
+
+- 冻结 MRAgent pack 导入、ID 连接、合法来源/前缀检查、精确去重与来源族。
+- 稀疏直接表示 `X = R sqrt(W)`；可选 native-topic 一步结构表示 `Y = XT`。
+- 弱边衰减自环、分通道归一化、固定 lambda 的余弦混合、来源贡献解释。
+- 已有 cue 的精确/显式别名映射；歧义和未映射保留；相同行合并诊断。
+- 方向覆盖、共同支持、leave-one-out 查证优先级、默认关闭的冻结策略。
+- 原问、答案需求、候选核心和独立 cue 队列；实际渲染 token 配额与跨度去重。
+- BM25，以及接受显式缓存向量的 dense+BM25 RRF；分块/问题/向量对齐清单。
+- 可选 OpenAI-compatible 问题前端与原文回答接口；引用范围校验与脱敏调用记录。
+- 索引保存/哈希审计、CLI、合成示例、数学/反例/端到端测试、CI。
+
+当前是研究实现。未选择开发集路由阈值、未宣称概率校准，也未运行真实模型效果实验。默认路由 `ORIGINAL`，仍输出全部可用诊断。历史设计文档保留其当时的“尚未实现”状态；实现与规格的对应和边界见 [实现说明](docs/implementation.md)。
+
+## 安装与验证
+
+需要 Python ≥3.10。
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[test,tokens]'
+pytest -q
+```
+
+完全离线、无 API 调用的合成示例：
+
+```bash
+eicr build --snapshot examples/synthetic_snapshot.json --config configs/direct.json --out artifacts/direct
+eicr audit-index --index artifacts/direct
+eicr diagnose --index artifacts/direct --question 'halloumi pinch paprika shopping' --out outputs/diagnostics.json
+eicr run --index artifacts/direct --question 'halloumi pinch paprika shopping' --tokenizer characters --out outputs/evidence.json
+```
+
+`characters` 是 Unicode 字符计数，仅用于测试与演示，不能冒充语言模型 token。输出包含映射、分数、路由理由、候选原文、实际证据包和预算账；不指定模型时 `answer=null`、状态为 `evidence_only`。输出路径已存在时拒绝覆盖。
+
+比较可选结构配置：
+
+```bash
+eicr build --snapshot examples/synthetic_snapshot.json --config configs/native_topic.json --out artifacts/native-topic
+eicr audit-index --index artifacts/native-topic
+```
+
+直接主配置 lambda=0；结构候选 beta=.25、lambda=.2。这些是设计起点，不是已证明最优值。
+
+## 输入格式
+
+[examples/synthetic_snapshot.json](examples/synthetic_snapshot.json) 给出了完整的最小输入。核心字段：
+
+```text
+owner_id, snapshot_id
+sources[]: source_id, text
+cues[]: cue_id, text, aliases?, scope_role?
+evidence[]: evidence_id, text, origins[], tags?, topics?, metadata?
+edges[]: cue_id, evidence_id, edge_origin?  # v1 二值直接边
+provenance: allowed_source_ids[], extraction_prefix_verified
+```
+
+`aliases` 必须是 `{text, source_ids}` 的显式记录；不按文本相似合并实体。`scope_role="scope"` 的 owner 等节点不投票。topic ID 应已包含 owner/session 身份，不能跨会话同名合并。来源族是显式来源重叠形成的连通分量，不是事件，也不是独立性证明。
+
+`extraction_prefix_verified` 是数据提供者对抽取所见来源范围的声明；程序检查记录一致性，不能独立证明一份虚假的声明。事实的全部 origins 必须合法；未来事实整体排除。别名/派生链接越界、悬空 ID 和来源缺失使构建失败。没有 keywords 的原文仍可用于原问检索。
+
+从冻结 MRAgent pack 导入：
+
+```bash
+eicr import --pack /path/to/conversation-pack.json --manifest /path/to/legal-prefix.json --out data/snapshot.json
+eicr build --snapshot data/snapshot.json --out artifacts/conversation
+```
+
+manifest 必须包含 `owner_id`、`snapshot_id`、`allowed_source_ids`、`extraction_prefix_verified=true`；可提供 `attestation` 和 `scope_cue_texts`。导入不执行 MRAgent Agent，不自动补 speaker 边，不使用其缺失时间回填作为真实事件时间。
+
+## 前端与路由
+
+默认前端是保守的已有标签字面扫描，适合调试，不能保证完整理解自然语言。`--frontend` 可传入含 `mentions`、`answer_need`、`query_shape` 的 JSON；mentions 使用原问题的 Unicode 码点半开区间。模糊候选不投票，未映射不等于入口错误。
+
+至少三个有效诊断组时计算：
+
+```text
+check_priority(i) = 其余组的加权内部关联 − i 与其余组的加权关联
+```
+
+完整相同的 R 行只算一份结构观察。两组只能对称查证；精确包含、歧义、截断、多目标输入、同分等均有明确降级路径。没有冻结 policy 时始终保留原问策略。
+
+开发集完成选择后，提供一个包含 `thresholds` 和 `selection_manifest` 的 JSON：
+
+```bash
+eicr freeze-policy --index artifacts/conversation --selection /path/to/development-selection.json --out outputs/policy.json
+```
+
+四个阈值为 `tau_delta`、`tau_core`、`tau_margin`、`tau_pair`。选择清单须含 `status="development_selected"`、`development_split_hash`、`selection_rule`、`grouping`、`confirmation_untouched=true`。该命令验证并冻结选择记录，不会自行完成调参，更不证明所提供的声明真实。policy 绑定确切 index hash；不兼容时走原问。
+
+## 原文预算与模型
+
+| 模式 | 原文 token 配额 |
+|---|---|
+| ORIGINAL | 原问 6000 |
+| SYMMETRIC_CHECK | 原问 4000；两侧各 1000 |
+| SINGLE_CUE_CHECK | 原问 3000；答需、核心、独立 cue 各 1000 |
+
+只合并实际选中的重叠跨度，按新增渲染文本计费。相同来源的未覆盖跨度仍收费。独立 cue 队列不加其他 cue 的日期/地点硬过滤，也不按核心相似度删除反证；按来源族轮转，有限预算仍会遗漏证据。
+
+真实模型运行必须指定对应的 tiktoken encoding；若目标模型使用另一种 tokenizer，在 Python API 传入具有 `count(text)` 和固定 `identity` 的计数器。编码初次加载可能需要下载 tokenizer 词表；离线时应预先缓存。
+
+```bash
+export OPENAI_API_KEY='your-key'
+eicr run --index artifacts/conversation --question 'Your original question' \
+  --tokenizer cl100k_base --api-base https://your-provider.example/v1 --model YOUR_MODEL \
+  --llm-frontend --generate --out outputs/answer.json
+```
+
+仅指定 `--llm-frontend` / `--generate` 才会调用相应接口。默认每次最多一次回答，前端最多一次格式重试。模型、endpoint、凭证环境变量由用户明确提供；代码不读取本地 `.env`、不写凭证。兼容接口须支持 JSON object 与 `max_tokens`。问题与记忆会发往该显式指定的 endpoint。
+
+默认检索是 BM25，输出会标 `bm25_only`；不会声称已运行 dense RAG。启用 hybrid 时传 `--dense bundle.npz --dense-manifest bundle.json`。bundle 的数组为 `chunk_vectors` 和 `query_vector`；manifest 须含 `npz_sha256`、`index_hash`、`tokenizer`、`chunk_order_hash`、`question_hash`、`dense_identity`。生成方式见 [实现说明](docs/implementation.md)。
+
+## 文档与研究边界
+
+- [详细设计 v1（中文，历史设计）](docs/design_v1_zh.md)
+- [最初的可行性与图结构说明](docs/concept_note.md)
+- [历史设计参数](docs/design_defaults.json)：不是可执行 IndexConfig。
+- [实现对应、接口与限制](docs/implementation.md)
+- [验证报告](docs/validation.md)
+
+离线评价只汇总外部审定的 `correct` 标签，`audit-splits` 检查 memory/question-family 泄漏；不会以词面重叠假装完整 QA 评测，也不会从无标签数据产生错误概率。
+
+同图输入无法恢复未保留的动作、主客体、否定、计划/完成或时间归属。多个 cue 共同指向错误但自洽的经历也可能检测不到。方法价值需要通过同来源、同前端、同实际预算的强对照验证。
+
+## 继承与引用
+
+Cue 概念和冻结资产适配基于 [MRAgent](https://github.com/Ji-shuo/MRAgent)。此项目不包含其语料、缓存、第三方源代码或模型权重；导入器依据冻结记录合同独立实现。加权关联、cosine、Bhattacharyya/Hellinger 与图平滑均有既有研究基础，方法名不构成首创声明。后续论文应补充正式文献核查与引用。

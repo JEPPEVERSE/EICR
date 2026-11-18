@@ -1,0 +1,175 @@
+{
+  "owner_id": "synthetic",
+  "snapshot_id": "synthetic-v1",
+  "sources": [
+    {
+      "source_id": "s0",
+      "text": "Halloumi salad used a pinch of smoked paprika."
+    },
+    {
+      "source_id": "s1",
+      "text": "The salad was served on Sunday."
+    },
+    {
+      "source_id": "s2",
+      "text": "A pinch of paprika was added to the dressing."
+    },
+    {
+      "source_id": "s3",
+      "text": "The shopping trip bought Mediterranean blend and snacks."
+    },
+    {
+      "source_id": "s4",
+      "text": "The museum visit was on Wednesday."
+    }
+  ],
+  "cues": [
+    {
+      "cue_id": "halloumi",
+      "text": "halloumi"
+    },
+    {
+      "cue_id": "pinch",
+      "text": "pinch"
+    },
+    {
+      "cue_id": "paprika",
+      "text": "paprika"
+    },
+    {
+      "cue_id": "shopping",
+      "text": "shopping"
+    },
+    {
+      "cue_id": "empty",
+      "text": "empty"
+    },
+    {
+      "cue_id": "owner",
+      "text": "owner"
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "e0",
+      "text": "Halloumi salad used a pinch of smoked paprika.",
+      "origins": [
+        "s0"
+      ],
+      "topics": [
+        "cooking"
+      ],
+      "tags": [
+        "food"
+      ]
+    },
+    {
+      "evidence_id": "e1",
+      "text": "The salad was served on Sunday.",
+      "origins": [
+        "s1"
+      ],
+      "topics": [
+        "cooking"
+      ],
+      "tags": [
+        "food"
+      ]
+    },
+    {
+      "evidence_id": "e2",
+      "text": "A pinch of paprika was added to the dressing.",
+      "origins": [
+        "s2"
+      ],
+      "topics": [],
+      "tags": [
+        "food"
+      ]
+    },
+    {
+      "evidence_id": "e3",
+      "text": "The shopping trip bought Mediterranean blend and snacks.",
+      "origins": [
+        "s3"
+      ],
+      "topics": [],
+      "tags": [
+        "food"
+      ]
+    },
+    {
+      "evidence_id": "e4",
+      "text": "The museum visit was on Wednesday.",
+      "origins": [
+        "s4"
+      ],
+      "topics": [],
+      "tags": []
+    }
+  ],
+  "edges": [
+    {
+      "cue_id": "halloumi",
+      "evidence_id": "e0"
+    },
+    {
+      "cue_id": "halloumi",
+      "evidence_id": "e1"
+    },
+    {
+      "cue_id": "pinch",
+      "evidence_id": "e0"
+    },
+    {
+      "cue_id": "pinch",
+      "evidence_id": "e2"
+    },
+    {
+      "cue_id": "paprika",
+      "evidence_id": "e0"
+    },
+    {
+      "cue_id": "paprika",
+      "evidence_id": "e1"
+    },
+    {
+      "cue_id": "paprika",
+      "evidence_id": "e2"
+    },
+    {
+      "cue_id": "shopping",
+      "evidence_id": "e3"
+    },
+    {
+      "cue_id": "owner",
+      "evidence_id": "e0"
+    },
+    {
+      "cue_id": "owner",
+      "evidence_id": "e1"
+    },
+    {
+      "cue_id": "owner",
+      "evidence_id": "e2"
+    },
+    {
+      "cue_id": "owner",
+      "evidence_id": "e3"
+    },
+    {
+      "cue_id": "owner",
+      "evidence_id": "e4"
+    }
+  ],
+  "provenance": {
+    "allowed_source_ids": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4"
+    ],
+    "extraction_prefix_verified": true
+  }
+}
