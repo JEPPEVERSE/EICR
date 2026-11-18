@@ -1,0 +1,400 @@
+{
+  "status": "exploratory_development_pilot_not_confirmation",
+  "families_evaluated": 13,
+  "evaluation_questions": 39,
+  "calibration_questions": 48,
+  "model": "qwen3.5-27b",
+  "retriever": "bm25_only",
+  "source_budget_tokens": 6000,
+  "answer_content_score_after_evaluator_correction": {
+    "status": "post_hoc_corrected_judge_with_explicit_assistant_adjudication_not_human_validation",
+    "assistant_adjudicated_questions": [
+      "ES027_P0"
+    ],
+    "prompt_hash": "b0f75db9843997b7e7d51df638bdb91e111f57d1e564300ce1085b95815fc55b",
+    "metrics": {
+      "original": {
+        "OG": {
+          "n": 13,
+          "correct": 10
+        },
+        "P0": {
+          "n": 13,
+          "correct": 3
+        },
+        "P1": {
+          "n": 13,
+          "correct": 2
+        }
+      },
+      "cue_union": {
+        "OG": {
+          "n": 13,
+          "correct": 9
+        },
+        "P0": {
+          "n": 13,
+          "correct": 5
+        },
+        "P1": {
+          "n": 13,
+          "correct": 1
+        }
+      },
+      "direct": {
+        "OG": {
+          "n": 13,
+          "correct": 10
+        },
+        "P0": {
+          "n": 13,
+          "correct": 3
+        },
+        "P1": {
+          "n": 13,
+          "correct": 2
+        }
+      },
+      "structure": {
+        "OG": {
+          "n": 13,
+          "correct": 10
+        },
+        "P0": {
+          "n": 13,
+          "correct": 3
+        },
+        "P1": {
+          "n": 13,
+          "correct": 2
+        }
+      }
+    },
+    "paired": {
+      "original": {
+        "OG": {
+          "wins": 0,
+          "losses": 0
+        },
+        "P0": {
+          "wins": 0,
+          "losses": 0
+        },
+        "P1": {
+          "wins": 0,
+          "losses": 0
+        }
+      },
+      "cue_union": {
+        "OG": {
+          "wins": 0,
+          "losses": 1
+        },
+        "P0": {
+          "wins": 2,
+          "losses": 0
+        },
+        "P1": {
+          "wins": 1,
+          "losses": 2
+        }
+      },
+      "direct": {
+        "OG": {
+          "wins": 0,
+          "losses": 0
+        },
+        "P0": {
+          "wins": 0,
+          "losses": 0
+        },
+        "P1": {
+          "wins": 0,
+          "losses": 0
+        }
+      },
+      "structure": {
+        "OG": {
+          "wins": 0,
+          "losses": 0
+        },
+        "P0": {
+          "wins": 0,
+          "losses": 0
+        },
+        "P1": {
+          "wins": 0,
+          "losses": 0
+        }
+      }
+    }
+  },
+  "source_metrics": {
+    "original": {
+      "OG": {
+        "n": 13,
+        "source_recall": 0.9743589743589743,
+        "all_required_sources": 12,
+        "mean_tokens": 5991.923076923077
+      },
+      "P0": {
+        "n": 13,
+        "source_recall": 0.8589743589743589,
+        "all_required_sources": 10,
+        "mean_tokens": 5993.2307692307695
+      },
+      "P1": {
+        "n": 13,
+        "source_recall": 0.9358974358974359,
+        "all_required_sources": 11,
+        "mean_tokens": 5989.846153846154
+      }
+    },
+    "cue_union": {
+      "OG": {
+        "n": 13,
+        "source_recall": 0.9743589743589743,
+        "all_required_sources": 12,
+        "mean_tokens": 5990.846153846154
+      },
+      "P0": {
+        "n": 13,
+        "source_recall": 0.8589743589743589,
+        "all_required_sources": 10,
+        "mean_tokens": 5993.692307692308
+      },
+      "P1": {
+        "n": 13,
+        "source_recall": 0.9358974358974359,
+        "all_required_sources": 11,
+        "mean_tokens": 5989.7692307692305
+      }
+    },
+    "direct": {
+      "OG": {
+        "n": 13,
+        "source_recall": 0.9743589743589743,
+        "all_required_sources": 12,
+        "mean_tokens": 5992.692307692308
+      },
+      "P0": {
+        "n": 13,
+        "source_recall": 0.8589743589743589,
+        "all_required_sources": 10,
+        "mean_tokens": 5993.2307692307695
+      },
+      "P1": {
+        "n": 13,
+        "source_recall": 0.9358974358974359,
+        "all_required_sources": 11,
+        "mean_tokens": 5989.2307692307695
+      }
+    },
+    "structure": {
+      "OG": {
+        "n": 13,
+        "source_recall": 0.9743589743589743,
+        "all_required_sources": 12,
+        "mean_tokens": 5992.692307692308
+      },
+      "P0": {
+        "n": 13,
+        "source_recall": 0.8589743589743589,
+        "all_required_sources": 10,
+        "mean_tokens": 5993.2307692307695
+      },
+      "P1": {
+        "n": 13,
+        "source_recall": 0.9358974358974359,
+        "all_required_sources": 11,
+        "mean_tokens": 5989.2307692307695
+      }
+    }
+  },
+  "frontend": {
+    "queries": 87,
+    "frontend_error_queries": 1,
+    "entry_mentions": 286,
+    "unique_mentions": 148,
+    "status_counts": {
+      "unique": 148,
+      "ambiguous": 115,
+      "unmapped": 23
+    },
+    "all_entries_unique_queries": 11
+  },
+  "frozen_policy_selection": {
+    "direct": {
+      "thresholds": {
+        "tau_delta": 0.15,
+        "tau_core": 0.3,
+        "tau_margin": 0.05,
+        "tau_pair": 0.05
+      },
+      "counts": {
+        "checks": 1,
+        "correct_symmetric": 1
+      },
+      "score": 0.25,
+      "eligible": true
+    },
+    "structure": {
+      "thresholds": {
+        "tau_delta": 0.15,
+        "tau_core": 0.3,
+        "tau_margin": 0.05,
+        "tau_pair": 0.05
+      },
+      "counts": {
+        "checks": 1,
+        "correct_symmetric": 1
+      },
+      "score": 0.25,
+      "eligible": true
+    }
+  },
+  "output_contract_audit": {
+    "original": {
+      "OG": {
+        "n": 13,
+        "raw_valid": 8,
+        "semantic_correct": 6,
+        "valid_after_exact_header_repair": 13,
+        "repaired_end_to_end_correct": 6
+      },
+      "P0": {
+        "n": 13,
+        "raw_valid": 6,
+        "semantic_correct": 3,
+        "valid_after_exact_header_repair": 10,
+        "repaired_end_to_end_correct": 3
+      },
+      "P1": {
+        "n": 13,
+        "raw_valid": 7,
+        "semantic_correct": 2,
+        "valid_after_exact_header_repair": 11,
+        "repaired_end_to_end_correct": 2
+      }
+    },
+    "cue_union": {
+      "OG": {
+        "n": 13,
+        "raw_valid": 8,
+        "semantic_correct": 6,
+        "valid_after_exact_header_repair": 12,
+        "repaired_end_to_end_correct": 6
+      },
+      "P0": {
+        "n": 13,
+        "raw_valid": 8,
+        "semantic_correct": 2,
+        "valid_after_exact_header_repair": 11,
+        "repaired_end_to_end_correct": 2
+      },
+      "P1": {
+        "n": 13,
+        "raw_valid": 9,
+        "semantic_correct": 1,
+        "valid_after_exact_header_repair": 11,
+        "repaired_end_to_end_correct": 1
+      }
+    },
+    "direct": {
+      "OG": {
+        "n": 13,
+        "raw_valid": 8,
+        "semantic_correct": 6,
+        "valid_after_exact_header_repair": 13,
+        "repaired_end_to_end_correct": 6
+      },
+      "P0": {
+        "n": 13,
+        "raw_valid": 6,
+        "semantic_correct": 3,
+        "valid_after_exact_header_repair": 10,
+        "repaired_end_to_end_correct": 3
+      },
+      "P1": {
+        "n": 13,
+        "raw_valid": 7,
+        "semantic_correct": 2,
+        "valid_after_exact_header_repair": 11,
+        "repaired_end_to_end_correct": 2
+      }
+    },
+    "structure": {
+      "OG": {
+        "n": 13,
+        "raw_valid": 8,
+        "semantic_correct": 6,
+        "valid_after_exact_header_repair": 13,
+        "repaired_end_to_end_correct": 6
+      },
+      "P0": {
+        "n": 13,
+        "raw_valid": 6,
+        "semantic_correct": 3,
+        "valid_after_exact_header_repair": 10,
+        "repaired_end_to_end_correct": 3
+      },
+      "P1": {
+        "n": 13,
+        "raw_valid": 7,
+        "semantic_correct": 2,
+        "valid_after_exact_header_repair": 11,
+        "repaired_end_to_end_correct": 2
+      }
+    }
+  },
+  "actual_route_reasons": {
+    "direct": {
+      "NO_CHECK_SIGNAL": 3,
+      "INCOMPLETE_MAPPING": 34,
+      "SINGLE_CUE_NEEDS_CHECK": 2
+    },
+    "structure": {
+      "NO_CHECK_SIGNAL": 3,
+      "INCOMPLETE_MAPPING": 34,
+      "SINGLE_CUE_NEEDS_CHECK": 2
+    }
+  },
+  "counterexample": {
+    "OG": {
+      "selected": "Tokyo",
+      "delta": 0.2313196312542548,
+      "core_cohesion": 0.37926816655520157,
+      "margin": 0.3035588375736353
+    },
+    "P1": {
+      "selected": "Boston",
+      "delta": 0.22610808620722272,
+      "core_cohesion": 0.37926816655520157,
+      "margin": 0.25234191827588487
+    },
+    "clean_dominates_perturbed_on_all_three_threshold_features": true
+  },
+  "successful_unique_calls": {
+    "frontend": 86,
+    "judge_raw_output_audit": 29,
+    "judge_v2": 62,
+    "judge": 40,
+    "answer": 77,
+    "judge_v2_format_retry": 4,
+    "preflight": 2
+  },
+  "provider_reported_tokens_for_successful_calls": {
+    "prompt_tokens": 615241,
+    "completion_tokens": 36764,
+    "total_tokens": 652005
+  },
+  "attempted_requests": 302,
+  "limitations": [
+    "post-hoc grading fixes; one assistant-adjudicated question, no independent human grading",
+    "missing session dates in rendered runtime sources",
+    "invalid citation fields remain visible in raw outputs",
+    "single model and BM25-only",
+    "six held-out development memories, thirteen question families",
+    "old automatic grader scores are audit history, not valid QA results"
+  ]
+}

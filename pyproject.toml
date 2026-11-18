@@ -16,6 +16,7 @@ Repository = "https://github.com/JEPPEVERSE/EICR"
 [project.optional-dependencies]
 test = ["pytest>=7", "build>=1"]
 tokens = ["tiktoken>=0.7"]
+pilot = ["tokenizers==0.22.2"]
 
 [project.scripts]
 eicr = "eicr.cli:main"

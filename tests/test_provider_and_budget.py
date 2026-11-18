@@ -39,6 +39,27 @@ def test_provider_error_does_not_expose_body(monkeypatch):
     assert backend.calls[0]["status"]=="error"
 
 
+def test_explicit_non_thinking_generation_options(monkeypatch):
+    monkeypatch.setenv("EICR_TEST_KEY", "test-secret")
+    payloads = []
+    def fake_open(request, timeout):
+        payloads.append(json.loads(request.data))
+        return io.BytesIO(json.dumps({"choices": [{"finish_reason": "stop", "message": {"content": "{}"}}]}).encode())
+    monkeypatch.setattr("eicr.provider._open_no_redirect", fake_open)
+    configured = ChatBackend("https://example.test/v1", "model", key_env="EICR_TEST_KEY", temperature=0, enable_thinking=False)
+    configured.chat_json("s", "q")
+    ChatBackend("https://example.test/v1", "model", key_env="EICR_TEST_KEY").chat_json("s", "q")
+    ChatBackend("https://example.test/v1", "model", key_env="EICR_TEST_KEY", json_mode=False).chat_json("s", "q")
+    assert payloads[0]["temperature"] == 0 and payloads[0]["enable_thinking"] is False
+    assert "temperature" not in payloads[1] and "enable_thinking" not in payloads[1]
+    assert payloads[1]["response_format"] == {"type": "json_object"}
+    assert "response_format" not in payloads[2]
+    assert configured.calls[0]["generation_options"] == {"temperature": 0, "enable_thinking": False}
+    for options in [{"temperature": float("nan")}, {"temperature": True}, {"temperature": -1}, {"enable_thinking": "false"}]:
+        with pytest.raises(ContractError):
+            ChatBackend("https://example.test/v1", "model", **options)
+
+
 def test_insecure_remote_endpoint_rejected():
     with pytest.raises(ContractError):
         ChatBackend("http://example.test/v1","m")

@@ -7,7 +7,7 @@ from .diagnostics import diagnose
 from .packer import chunk_sources, pack_sources
 from .policy import choose_route
 from .provider import ANSWER_PROMPT, FRONTEND_PROMPT, ProviderTransportError
-from .query_map import map_query
+from .query_map import ground_mentions, map_query
 from .retrieval import SharedRetriever, collect_candidates
 
 
@@ -46,7 +46,7 @@ def run(index, question, tokenizer, *, mentions=None, answer_need="", query_shap
                 require(isinstance(parsed, dict), "Frontend response must be an object")
                 require(isinstance(parsed.get("mentions"), list), "Frontend lacks mentions")
                 require(isinstance(parsed.get("answer_need", ""), str), "Invalid frontend answer_need")
-                query = map_query(index, question, parsed["mentions"], question_id=question_id,
+                query = map_query(index, question, ground_mentions(question, parsed["mentions"]), question_id=question_id,
                                   answer_need=parsed.get("answer_need", ""), query_shape=parsed.get("query_shape", "unknown"))
                 query["frontend_basis"] = "explicit_llm_spans"
                 break

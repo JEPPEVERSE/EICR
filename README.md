@@ -120,6 +120,8 @@ eicr run --index artifacts/conversation --question 'Your original question' \
 
 HTTP 重定向一律拒绝，需填写服务的最终 API 地址。网络/认证配置失败不作为格式错误重试；响应体默认上限4 MiB，仅接受正常完成的 JSON 对象。最终原文块按装包结果原样交给模型，队列归因留在本地 trace。
 
+Python `ChatBackend` 可显式设置 `temperature=0`、`enable_thinking=False` 和 `json_mode=False`。最后一个选项只关闭服务端强制 JSON 模式，客户端仍严格要求 JSON 对象；本次 Qwen 开发诊断使用了这一兼容设置。LLM 前端可返回原问题中的逐字文本，由程序定位唯一出现的位置；重复文本没有有效位置时仍拒绝猜测。
+
 默认检索是 BM25，输出会标 `bm25_only`；不会声称已运行 dense RAG。启用 hybrid 时传 `--dense bundle.npz --dense-manifest bundle.json`。bundle 的数组为 `chunk_vectors` 和 `query_vector`；manifest 须含 `npz_sha256`、`index_hash`、`tokenizer`、`chunk_order_hash`、`question_hash`、`dense_identity`。生成方式见 [实现说明](docs/implementation.md)。
 
 ## 文档与研究边界
@@ -130,6 +132,10 @@ HTTP 重定向一律拒绝，需填写服务的最终 API 地址。网络/认证
 - [实现对应、接口与限制](docs/implementation.md)
 - [验证报告](docs/validation.md)
 - [0.1.1 代码复核与修复记录](docs/review_20261118.md)
+- [小规模开发诊断协议与复现](docs/pilot_protocol_20261118.md)
+- [小规模测试结果](docs/pilot_results_20261118.md)
+
+开发诊断脚本位于 `scripts/run_development_pilot.py`，单独安装 `.[pilot]` 依赖；该显式启动的脚本可从指定工作区的 `main_lab/.env` 读取 QWEN_API_KEY。本地数据、模型回答和调用缓存保存在被 Git 忽略的 artifacts/。
 
 离线评价只汇总外部审定的 `correct` 标签，`audit-splits` 检查 memory/question-family 泄漏；不会以词面重叠假装完整 QA 评测，也不会从无标签数据产生错误概率。
 

@@ -7,6 +7,29 @@ from collections import defaultdict
 from .contracts import digest, lookup, require, tokens
 
 
+def ground_mentions(question, mentions):
+    """Locate exact model-copied surfaces; never guess repeated occurrences.
+
+    This repairs coordinates only, not semantic labels or lexical mismatches.
+    Supplied correct coordinates win; otherwise a single exact occurrence is
+    required. Original model observations can be retained separately by callers.
+    """
+    require(isinstance(question, str) and isinstance(mentions, list), "Invalid grounding inputs")
+    grounded = []
+    for mention in mentions:
+        require(isinstance(mention, dict), "Each mention must be an object")
+        surface = mention.get("surface_text")
+        require(isinstance(surface, str) and bool(surface), "Mention needs a nonempty literal surface")
+        start, end = mention.get("span_start"), mention.get("span_end")
+        if type(start) is int and type(end) is int and 0 <= start < end <= len(question) and question[start:end] == surface:
+            grounded.append(dict(mention))
+            continue
+        start = question.find(surface)
+        require(start >= 0 and question.find(surface, start + 1) == -1, "Surface absent or repeated without valid offsets")
+        grounded.append({**mention, "span_start": start, "span_end": start + len(surface)})
+    return grounded
+
+
 def _scan_text(text):
     """NFD + casefold + whitespace normalization with original codepoint spans.
 
