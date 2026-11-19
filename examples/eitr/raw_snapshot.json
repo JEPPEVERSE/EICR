@@ -1,0 +1,174 @@
+{
+  "owner_id": "owner-A",
+  "snapshot_id": "frozen-1",
+  "provenance": {
+    "extraction_prefix_verified": true,
+    "allowed_source_ids": [
+      "D1:1",
+      "D1:2",
+      "D1:10",
+      "D2:1"
+    ]
+  },
+  "sources": [
+    {
+      "source_id": "D1:1",
+      "session_id": "D1",
+      "text": "I bought paprika and herbs at the shop.",
+      "speaker": "A",
+      "session_datetime": "2024-09-15",
+      "datetime_provenance": "native_verified"
+    },
+    {
+      "source_id": "D1:2",
+      "session_id": "D1",
+      "text": "For halloumi salad I used a pinch of herbs.",
+      "speaker": "A",
+      "session_datetime": "2024-09-15",
+      "datetime_provenance": "native_verified"
+    },
+    {
+      "source_id": "D1:10",
+      "session_id": "D1",
+      "text": "The shop also sold popcorn.",
+      "speaker": "A"
+    },
+    {
+      "source_id": "D2:1",
+      "session_id": "D2",
+      "text": "The train to London was late.",
+      "speaker": "A"
+    }
+  ],
+  "cues": [
+    {
+      "cue_id": "paprika",
+      "text": "paprika",
+      "aliases": []
+    },
+    {
+      "cue_id": "herbs",
+      "text": "herbs",
+      "aliases": []
+    },
+    {
+      "cue_id": "halloumi",
+      "text": "halloumi",
+      "aliases": []
+    },
+    {
+      "cue_id": "shop",
+      "text": "shop",
+      "aliases": []
+    },
+    {
+      "cue_id": "train",
+      "text": "train",
+      "aliases": []
+    },
+    {
+      "cue_id": "I",
+      "text": "I",
+      "aliases": []
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "f1",
+      "text": "Bought spices",
+      "origins": [
+        "D1:1"
+      ],
+      "tags": [
+        "shopping"
+      ]
+    },
+    {
+      "evidence_id": "f2",
+      "text": "Used herbs",
+      "origins": [
+        "D1:2"
+      ],
+      "tags": [
+        "cooking"
+      ]
+    },
+    {
+      "evidence_id": "f3",
+      "text": "Bought snacks",
+      "origins": [
+        "D1:10"
+      ],
+      "tags": [
+        "snacks"
+      ]
+    },
+    {
+      "evidence_id": "f4",
+      "text": "Train late",
+      "origins": [
+        "D2:1"
+      ],
+      "tags": [
+        "travel"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "cue_id": "paprika",
+      "evidence_id": "f1",
+      "edge_origin": "native_keyword"
+    },
+    {
+      "cue_id": "herbs",
+      "evidence_id": "f1",
+      "edge_origin": "native_keyword"
+    },
+    {
+      "cue_id": "shop",
+      "evidence_id": "f1",
+      "edge_origin": "native_keyword"
+    },
+    {
+      "cue_id": "herbs",
+      "evidence_id": "f2",
+      "edge_origin": "native_keyword"
+    },
+    {
+      "cue_id": "halloumi",
+      "evidence_id": "f2",
+      "edge_origin": "native_keyword"
+    },
+    {
+      "cue_id": "shop",
+      "evidence_id": "f3",
+      "edge_origin": "native_keyword"
+    },
+    {
+      "cue_id": "train",
+      "evidence_id": "f4",
+      "edge_origin": "native_keyword"
+    },
+    {
+      "cue_id": "I",
+      "evidence_id": "f1",
+      "edge_origin": "injected_speaker"
+    },
+    {
+      "cue_id": "I",
+      "evidence_id": "f2",
+      "edge_origin": "injected_speaker"
+    },
+    {
+      "cue_id": "I",
+      "evidence_id": "f3",
+      "edge_origin": "injected_speaker"
+    },
+    {
+      "cue_id": "I",
+      "evidence_id": "f4",
+      "edge_origin": "injected_speaker"
+    }
+  ]
+}

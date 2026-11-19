@@ -20,6 +20,7 @@ pilot = ["tokenizers==0.22.2"]
 
 [project.scripts]
 eicr = "eicr.cli:main"
+eitr = "eitr.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,5 +1,7 @@
 # EICR
 
+**2026-11-19：当前研究主线已转向 EITR 图记忆低成本检索。** 新实现位于 `src/eitr/`，包含独立 tag 索引、有界候选扩展、多入口覆盖调度和 P0–P4 对照。使用 `eitr` 命令，详见 [EITR 实现与运行说明](docs/eitr_implementation_v2.md)。下文与 `eicr` 命令保留旧入口扰动研究，两个索引格式不可混用。
+
 Evidence-Induced Cue Representation：从已有 cue 的下游证据计算稀疏表示，用于入口扰动下的关联诊断与有限预算查证。
 
 Cue 是已有的语义标签。其向量来自 cue–evidence 关联，不通过 cue 文字的 embedding 编码器生成。一个 cue 可以同时连接多个情境；系统不要求先构造完整事件实体。Cosine 表示这份记忆中的证据关联，不能直接解释成入口错误概率或同事件概率。
