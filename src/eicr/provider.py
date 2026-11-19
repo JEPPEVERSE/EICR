@@ -5,6 +5,7 @@ import math
 import os
 import urllib.error
 import urllib.request
+from time import perf_counter
 from urllib.parse import urlparse
 
 from .contracts import ContractError, digest, require
@@ -69,12 +70,15 @@ class ChatBackend:
                  "generation_options": dict(self.generation_options), "json_mode": self.json_mode,
                  "max_output_tokens": self.max_output_tokens, "status": "started"}
         self.calls.append(trace)
+        started = perf_counter()
         try:
             with _open_no_redirect(request, timeout=self.timeout) as response:
                 body = response.read(self.max_response_bytes + 1)
             require(len(body) <= self.max_response_bytes, "Provider response exceeds configured byte cap")
             result = _strict_json(body)
             require(isinstance(result, dict), "Provider response must be an object")
+            trace["response_model"] = result.get("model") if isinstance(result.get("model"), str) else None
+            trace["system_fingerprint"] = result.get("system_fingerprint") if isinstance(result.get("system_fingerprint"), str) else None
             usage = result.get("usage", {})
             trace["usage"] = {name: value for name, value in usage.items()
                               if name in ("prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens")
@@ -99,6 +103,8 @@ class ChatBackend:
             trace["status"] = "error"
             # Do not expose response bodies, credentials or request headers.
             raise ContractError("Chat request failed (" + type(error).__name__ + "); inspect redacted call metadata") from None
+        finally:
+            trace["seconds"] = perf_counter() - started
 
 
 FRONTEND_PROMPT = """Extract existing-memory lookup mentions from the original question.

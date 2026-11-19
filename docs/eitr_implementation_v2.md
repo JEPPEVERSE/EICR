@@ -1,58 +1,49 @@
-# EITR v2：实现与运行说明
+# EITR v2：实现与运行说明（0.2.0）
 
-2026-11-19。实现的是正常图记忆 QA 的低成本检索工具；不运行旧 EICR 的入口错误诊断。方法主线是下游 cue 分布索引、有界 tag 候选生成、多入口支持与已读原文覆盖反馈。结构梯子仅是备选研究框架。
+2026-11-19。主线为正常图记忆 QA 的成本—质量优化，不做入口纠错。实现依据研究设计 v2；第一版交付遗漏及本次修复逐项记录于 [完整性验收](eitr_completion_audit_20261119.md)。此前 114 项测试和冒烟记录是历史状态，不能当作本版完整验收。
 
-本次完成本地实现与离线验收，没有调用真实 LLM，也没有新方法准确率结果。
+## 1. 已实现范围
 
-## 已实现及明确边界
-
-| 部分 | 状态 |
+| 模块 | 当前实现 |
 |---|---|
-| 原生 pack 导入、scope/provenance 校验 | 完成；日期需要 manifest 的真实来源声明 |
-| 来源平衡 cue 分布、IDF、平方根、稀疏 top-k 图 | 完成，R_cue |
-| 下游事实向量均值对照 | 完成，R_fact；需要 caller 提供对齐且标明 encoder 的向量 |
-| 一次 cue 前端、精确/别名/词面映射、入口公平截断 | 完成，复用原问题 span 验证；失败有界回退 |
-| 分组图扩展、两跳深度状态、无输出桥接 | 完成 |
-| 完整动作候选池、日期、邻接上下文和原文引用 | 完成；上下文是同会话相邻 atom，不是整轮无限展开 |
-| P0–P4、两项委员会消融、strict_seed | 完成，可用相同候选池回放 |
-| 一轮回答、引用验证、无标签批量运行、描述性配对汇总 | 完成；评分标签与运行输入隔离 |
-| 原生 MRAgent / 正式 controlled-MRAgent P5 | **尚未实现为此运行器的可比臂**；旧仓库结果不能直接搬入 |
-| 受控原生 key–tag 工具循环 | 已提供 `P5_proxy`，用于检查低成本工具循环接口，**不是原生 MRAgent，也不能冒充设计中的 P5** |
-| SwiftMem/HyperMem 完整复现 | 不在本次实现内；正式比较前仍需核验 |
+| R_cue | 事实唯一 cue 均分 → 完整 origin 集合内平均 → 来源组间平均 → IDF/sqrt/L2 |
+| R_fact | 对齐的事实向量单位化 → 同来源组聚合 → tag 单位化；附向量对齐命令 |
+| 关联索引 | 正相似度有向 top-k，零向量不补边，主要共享坐标可追溯 |
+| 入口 | 一次提取、一次有界格式重试、原问题 span 校验、廉价原生 key/tag 映射 |
+| 委员分组 | 规范化表面文本去重；唯一精确/已验证别名指向同 key 时合并；歧义/模糊匹配不强行合并 |
+| 候选枚举 | 分组轮转、组内最大路径、保留 depth 状态、完整邻接行计费、零输出桥接 |
+| 动态选择 | 真实原文、固定邻接上下文、精确覆盖边际、整题相关性、实际渲染成本、预留回收 |
+| 对照 | P0–P5、去掉支持/覆盖两项变体、strict_seed；P2/P3/P4 固定同一候选池 |
+| 原文基础设施 | atom/BM25 离线缓存；原文/跨度/配置/tokenizer/实现校验；批量每快照复用 |
+| 实验 | 多 owner 协议冻结、预检、逐题落盘、回答复用标记、失败调用账、独立请求计时 |
+| 评测 | 在线输入与标签隔离、盲评、来源召回、阶段失败定位、配对统计与可选 owner bootstrap |
+| 可复现性 | 完整候选相关性、逐步选择与备选动作、截断记录、精确调度回放、代码/环境/输入 hash |
 
-`P5_proxy` 以显式 JSON 选择已有 key–tag 对，通过已展示来源发现更多 key，再调用共用回答器。它缺少原生 MRAgent 的完整 topic/personality 工具、时间规划和原始提示词。日志固定标明这些差别。没有为“补齐六臂”把自定义循环改名为 MRAgent。
+P5 的受控定义见 §5，不能称为原生 M0。tag 文本向量、逐项表示消融、全梯子、多编码器、SwiftMem/HyperMem 的完整复现不属于本轮必要实现，按设计在初步信号后或正式相关工作对照阶段开展。
 
-## 安装
+## 2. 安装与最小离线运行
 
 ```bash
-python -m pip install -e '.[test,tokens]'
+python -m pip install -e '.[test,tokens,pilot]'
 python -m pytest -q
+python -m eitr canonicalize --snapshot examples/eitr/raw_snapshot.json --out artifacts/demo/snapshot.json
+python -m eitr build --snapshot artifacts/demo/snapshot.json --config configs/eitr_v2.json --out artifacts/demo/index.json
+python -m eitr prepare-corpus --index artifacts/demo/index.json --tokenizer characters --out artifacts/demo/corpus.json
+python -m eitr compare --index artifacts/demo/index.json --corpus artifacts/demo/corpus.json --question 'Which herbs did I use for halloumi salad?' --tokenizer characters --out artifacts/demo/comparison.json
+python -m eitr batch --index artifacts/demo/index.json --corpus artifacts/demo/corpus.json --questions examples/eitr/questions.json --tokenizer characters --out artifacts/demo/batch
 ```
 
-使用模型提供的 `tokenizer.json` 时安装 `.[pilot]`。`python -m eitr` 不要求重新安装命令入口；从源码运行可设置 `PYTHONPATH=src`。
+输出路径必须不存在。`characters` 只供工程测试；CLI 禁止用它请求真实模型。生产使用与回答模型匹配的 tokenizer JSON，并固定 SHA256，或明确选择已验证兼容的 tiktoken encoding。
 
-## 不联网的合成端到端示例
+`build`、`prepare-corpus` 会另写 `.metrics.json`，包含输入加载、构建及序列化的 wall/CPU 和进程 RSS 高水位。内存值不是每题增量峰值。既有事实 embedding 的历史生成费用不自动视为免费。
 
-在仓库根目录执行，所有输出路径必须尚不存在：
+## 3. 数据来源、日期与原生辅助图
 
 ```bash
-python -m eitr canonicalize --snapshot examples/eitr/raw_snapshot.json --out artifacts/eitr-demo/snapshot.json
-python -m eitr build --snapshot artifacts/eitr-demo/snapshot.json --config configs/eitr_v2.json --out artifacts/eitr-demo/index.json
-python -m eitr audit --index artifacts/eitr-demo/index.json
-python -m eitr compare --index artifacts/eitr-demo/index.json --question 'Which herbs did I use for halloumi salad?' --tokenizer characters --config configs/eitr_v2.json --out artifacts/eitr-demo/comparison.json
-python -m eitr batch --index artifacts/eitr-demo/index.json --questions examples/eitr/questions.json --tokenizer characters --out artifacts/eitr-demo/batch
+python -m eitr import-mragent --pack /path/conv.json --manifest /path/scope.json --out artifacts/owner/snapshot.json
 ```
 
-`characters` 只用于测试，不能解释为模型 token。CLI 禁止用它发起真实模型请求。真实运行必须选择相应的 tokenizer；`cl100k_base` 等 encoding 名也不是模型适配性的自动证明。
-
-## 从 MRAgent 原生缓存导入
-
-```bash
-python -m eitr import-mragent --pack /path/to/conv.json --manifest /path/to/manifest.json --out artifacts/eitr-owner/snapshot.json
-python -m eitr build --snapshot artifacts/eitr-owner/snapshot.json --out artifacts/eitr-owner/index.json
-```
-
-manifest 最小结构：
+scope manifest 示例：
 
 ```json
 {
@@ -62,98 +53,142 @@ manifest 最小结构：
   "extraction_prefix_verified": true,
   "keyword_cache_is_pre_injection": true,
   "session_datetimes": {"D1": "2024-09-15"},
-  "attestation": "Describe the verified source horizon and date provenance"
+  "attestation": "Verified source horizon and date provenance"
 }
 ```
 
-时间映射键使用 raw session ID（如 `D1`），不是 rewrite session key（如 `session_1`）。没有核实的日期保持 `null`，不从事实 rewrite 的时间猜测。两项 true 是数据提供者声明，程序能检查关系一致性，不能证明虚假声明。
+时间映射使用 raw session ID（D1），不能使用 rewrite session_1。没有核验的时间为 null，不从重写事实推测。声明来自数据提供者，程序验证一致性，不能证明虚假声明。
 
-原生关键词应取运行时注入 speaker 之前的缓存。如果缓存中已经混入 speaker，应在 canonical 输入中明确用 `injected_speaker` 标注，而不是做上述声明。该边可用于原生寻址，但不进入统计特征。
-
-旧 EICR `records.json` 的规范化边可能已经丢失 `edge_origin`；不能直接改 schema 名称后导入。应回到原生 pack，或提供保留来源标记的 canonical 原始数据。所有事实 origins 必须属于允许范围；不允许跨 owner/snapshot 合并。标签名称不自动 casefold 合并。
-
-## 数学和调度
-
-对事实 cue 均分，先在相同完整 origin 集合内平均，再在 tag 下平均为 H。设 d_c=log((M+1)/(df(c)+1))，使用 `normalize(sqrt(H)*sqrt(d))`。零向量保留直接读取，不补随机边。
-
-候选支持：每个 query cue 组中，取已探索最大路径积；组间等权求和。组内候选数量不会重复计票。路径状态保留 group/tag/depth，最多两跳；达到 tag 数上限仍可更新已有 tag 的其他组支持。边预算不足完整一行时停止，记录截断。
-
-种子只读取实际 `(key,tag)` 的事实并集；再次通过别的路径到达种子也不扩大其读取范围。非种子 tag 使用原生 tag 全部事实。候选入池按完整 core＋上下文动作进行，不截掉半个上下文。
-
-覆盖状态 `C_j=max_{e in R} r_j(e)`，新增覆盖：
-
-```text
-delta_cov = mean_j max(0, max_{e in new} r_j(e) - C_j)
-rel_density = sum_{e in new} text_tokens(e) * r_q(e) / max(1, actual_delta_tokens)
-cov_density = reference_tokens * delta_cov / max(1, actual_delta_tokens)
-priority = [epsilon + (1-epsilon)*support] * [eta*rel_density + (1-eta)*cov_density]
-```
-
-只除一次实际成本；两个密度项已包含分母。密度写法与原参考长度归一化收益比仅差固定常数，排序不变。相同覆盖收益下偏好便宜动作是成本目标的一部分，仍应检查是否牺牲语境完整性。
-
-整题相关性底项保护相同 cue 的后续证据；`C=1` 不触发提前停止。覆盖是文本相似性代理，不是答案充分性。R 只在完整动作正式入包后更新。相同原文 atom 只计一次，时间、speaker、来源头和分隔符全部计入 token。全包重新渲染并计数，不能按独立块成本相加；暂时装不下的动作以后可以重试。
-
-预留按 direct 1/3、seed 1/6 执行，剩余配额全部回收到公共池。种子按组轮转，预算允许时给予直接读取机会；并不承诺所有入口都能入包。
-
-## 对照配置
-
-| CLI arm | 行为 |
-|---|---|
-| P0 | 直接检索，完整预算，不需要 cue 提取模型 |
-| P1 | seed＋direct，不扩展 |
-| P2 | 同图固定候选池，按 tag 均分配额；剩余额度按固定 tag 顺序回收 |
-| P3 | 同候选池，整题相关性/真实成本贪心、原文去重 |
-| P4 | 完整委员会 |
-| P4_no_support | 关闭入口支持因子 |
-| P4_no_coverage | 关闭覆盖反馈，保留入口支持 |
-| strict_seed | 仅种子原生范围，不回退 direct |
-
-P2/P3/P4 和两个消融的 `pool_hash` 必须相同，`compare` 会断言。无映射时 P1–P4 使用与 P0 相同的直接池及完整预算；strict_seed 明确输出无证据。
+可从原始 LoCoMo 对话核实日期：
 
 ```bash
-python -m eitr retrieve --index artifacts/eitr-demo/index.json --question 'Which herbs?' --arm P4 --tokenizer characters --out artifacts/eitr-demo/p4.json
-python -m eitr compare --index artifacts/eitr-demo/index.json --question 'Which herbs?' --arms P3 P4 P4_no_support P4_no_coverage --tokenizer characters --out artifacts/eitr-demo/ablations.json
+python -m eitr attest-dates --snapshot artifacts/owner/snapshot.json --conversation /path/original_conversation.json --out artifacts/owner/dated-snapshot.json
 ```
 
-本版的配置是 `configs/eitr_v2.json` 的扁平、严格 schema；研究文档的嵌套 `defaults_v2.json` 仅是设计说明，不能直接作为执行配置。未知字段报错。改 top_k 需要重建索引；改预算可复用相同离线索引。
+输入包含 `owner_id`、`conversation` 和可选 `raw_format`。默认精确比较 `speaker + ': ' + text`；`mragent_artifacts_v1` 精确复现现有缓存的 `speaker.strip() + ':' + text.strip()`，以及原生 `blip_caption` 的 ` and shared ...` 后缀。所有原文必须匹配，才附加真实 session date。日期改变快照 hash，之后重建两个索引及原文缓存。
 
-## R_fact 对照
+原生 keyword 边与 injected_speaker 边区分；后者不进入统计特征。导入器恢复原生构图时单来源事实的 speaker 导航边；多来源或缺 speaker 的情况记录为无法按该规则核验，不猜测关联。native import 同时保留原生 topic→fact 与 person/aspect→origins，供 P5 的七种工具使用。包含范围外事实的 topic 不保留；无合法事实来源的空 topic 不作导航候选。person/aspect 读取原文，不把重写个人总结作为答案证据。原生辅助关系不参与 R_cue 向量。
 
-`build --fact-vectors aligned.json` 接受：
+旧 EICR records 可能已丢失 edge_origin，不能改 schema 后冒充原生输入；应重新导入原始缓存。
+
+## 4. 主算法和对照
+
+来源组是排序后的完整 origin ID 集合，不是独立事件。事实 cue 均分并聚合为 H；对有效 tag 数 M，`d_c=log((M+1)/(df(c)+1))`，`v_t=normalize(sqrt(H_t)*sqrt(d))`。同 cue 的关联支持是各入口组已发现路径中的最大值，再按组等权平均。别名合并后只占一个支持委员、一个覆盖维度；覆盖查询使用该组在问题中实际出现的表面形式并集。
+
+种子只读实际映射 `(key,tag)` 事实并集，再次到达也不扩围；非种子可读其原生 tag 事实。core＋固定同会话前后各至多一个 atom 构成完整动作，不能在达到候选上限时截掉上下文。
+
+```text
+C_j = max_{e in selected} r_j(e)
+delta_cov = mean_j max(0, max_{e in new} r_j(e) - C_j)
+rel_density = sum_{e in new} text_tokens(e) * r_q(e) / max(1, actual_delta_tokens)
+cov_density = 128 * delta_cov / max(1, actual_delta_tokens)
+priority = [epsilon + (1-epsilon)*support] * [eta*rel_density+(1-eta)*cov_density]
+```
+
+`actual_delta_tokens` 是完整包重渲染后的增量，包含真实日期、speaker、来源头和分隔符。每次提交后重算覆盖、去重和成本。收益密度不再除第二次成本。覆盖满分不表示答案充分，也不停止后续相关证据读取。
+
+| arm | 行为 |
+|---|---|
+| P0 | 原问题 flat BM25＋去重＋成本贪心，无提取模型 |
+| P1 | direct＋精确种子范围，无关联图扩展 |
+| P2 | 同图候选，tag 均分配额后按固定 tag 顺序回收 |
+| P3 | 同候选池，整题相关性/真实成本贪心 |
+| P4 | 完整支持＋覆盖委员会 |
+| P4_no_support | Q=1，保留覆盖反馈 |
+| P4_no_coverage | eta=1，保留支持 |
+| strict_seed | 仅种子诊断，无 direct 回退 |
+| P5 | 真实 MRAgent 工具循环，共用原文和回答协议 |
+
+无映射时 P1–P4 使用 P0 的直接候选与完整预算。P2/P3/P4 及组件消融的 pool_hash 必须相同。前端网络调用的时间、用量不影响候选池身份。P0 不承担前端费用；P3 不承担不使用的 cue 查询。
+
+R_fact 输入为 `{snapshot_hash, encoder, fact_ids, vectors}`，顺序必须与 canonical facts 对齐。可先用 `align-fact-vectors --index ... --vectors export.json --out aligned.json` 对齐，export 是 `{encoder,fact_ids,vectors}`，ID 集合必须完全一致；随后 `build --fact-vectors aligned.json`。不自动调用 embedding API，不把 fact 向量冒充原文 atom 向量。
+
+## 5. 正式 P5 如何接入
+
+```bash
+python -m eitr pin-mragent --root /path/MRAgent --out artifacts/native-pin.json
+python -m eitr compare --index artifacts/owner/index.json --corpus artifacts/owner/corpus.json --question 'Your question' --arms P0 P1 P2 P3 P4 P5 --tokenizer json --tokenizer-file /path/tokenizer.json --tokenizer-sha256 VERIFIED_SHA256 --native-root /path/MRAgent --native-manifest artifacts/native-pin.json --llm-frontend --api-base https://provider.example/v1 --model PINNED_MODEL --key-env YOUR_API_KEY --out artifacts/owner/comparison.json
+```
+
+上例会真实调用前端和探索模型；没有 `--generate` 时不调用最终回答器。正式批量回答使用 `batch --generate` 或冻结协议 `experiment`。
+
+实现从用户的可信本地 checkout 校验并加载真实 `LLM.chat_with_tools_once`、`ToolBridge`、TOOLS、Prompts 和 JSON parser；不重写多轮控制函数，不导入会自动初始化凭证/客户端的整套应用，也不分发上游源码。校验基于文件内容，不能把含本地改动的 checkout 声称为官方干净 release。
+
+七种原生工具均有适配：key/tag 读取、会话时间、事件关键词、事件上下文、个人信息方面、个人方面读取、topic 事件读取。网络使用原生 function tool-calling 消息，保留每轮上下文、工具参数和响应。工具内容受同一原文、邻接上下文、候选/动作/证据预算限制。
+
+按照受控协议替换的部分明确写入每次 manifest：共用入口映射与廉价 tag/topic 初筛；原生工具的事实文本变为可追溯原文；共用预算；原生循环决定何时停止，原生生成的答案不进入最后回答器，但其模型用量仍计探索费用；最终调用共用回答器。默认 generic native category=0，不把评测分类标签传入模型，不执行原生额外 dense/LLM 初筛。**这定义 P5；原生全系统 M0 是另一项可选系统参考。**
+
+旧简化循环保留为 `explore-proxy`/`P5_proxy`，不在实验 RUN_ARMS 中，不可用于替代 P5。
+
+## 6. 冻结协议和运行
+
+所有路径使用绝对路径。spec 必须显式包含以下字段：
 
 ```json
 {
-  "snapshot_hash": "canonical snapshot content_hash",
-  "encoder": "fixed encoder and revision",
-  "fact_ids": ["exact ordered fact IDs from snapshot"],
-  "vectors": [[0.1, 0.2]]
+  "config": {},
+  "arms": ["P0", "P1", "P2", "P3", "P4", "P5"],
+  "tokenizer": {"kind": "json", "path": "/path/tokenizer.json", "sha256": "VERIFIED_SHA256"},
+  "assets": [{"index": "/path/index.json", "corpus": "/path/corpus.json"}],
+  "questions": "/path/questions.json",
+  "native": {"root": "/path/MRAgent", "manifest": "/path/native-pin.json"},
+  "model": {"api_base": "https://provider.example/v1", "model": "PINNED_MODEL", "key_env": "YOUR_API_KEY", "max_output_tokens": 2048},
+  "frontend": "llm",
+  "generate": true,
+  "require_dates": true,
+  "prices": null
 }
 ```
 
-每条事实向量先单位化，按与 R_cue 相同的来源组规则平均，再单位化 tag 向量。顺序、维度、非有限数、零向量及 snapshot mismatch 均验证。向量生成成本外部单列；此命令不会调用 embedding API，也不会把旧 fact 向量当成 raw atom 向量。
+`config:{}` 使用完整默认值；建议保存 configs/eitr_v2.json 的完整内容。prices 可为 `input_per_million`/`output_per_million` 的实际美元单价。纯检索工程测试可设 supplied、generate=false、require_dates=false，但不能把缺日期的测试称为完整时间问答实验。
 
-## 可选模型接口
-
-不指定标志则完全不联网。`--llm-frontend` 单独启用一次提取，格式失败最多重试一次；传输失败不重复扣费重试。`--generate` 只调用共用最终回答器。`compare` 只做检索；批量回答用 `batch --generate`。
+questions 只允许 `question_id,owner_id,snapshot_id,question,mentions?`。supplied 模式要求逐题给 mentions（空列表也应显式）；llm 模式不允许附带 mentions。gold/reference/answer 等标签字段在运行前拒绝。
 
 ```bash
-python -m eitr retrieve --index artifacts/owner/index.json --question 'Your question' --arm P4 --tokenizer json --tokenizer-file /path/tokenizer.json --tokenizer-sha256 VERIFIED_SHA256 --llm-frontend --generate --api-base https://your-provider.example/v1 --model explicit-model --key-env YOUR_API_KEY --out artifacts/owner/result.json
+python -m eitr freeze --spec /path/spec.json --out artifacts/protocol.json
+python -m eitr preflight --protocol artifacts/protocol.json
+python -m eitr experiment --protocol artifacts/protocol.json --out artifacts/experiment
 ```
 
-密钥从环境变量读，不写入配置。固定 tokenizer JSON SHA256，拒绝不匹配文件。也可用 `--tokenizer cl100k_base` 等显式 encoding。
+freeze/preflight 不调用模型。代码、数据、配置、依赖环境、tokenizer 或上游文件变化后必须重新冻结。experiment 按 owner/snapshot 分组运行，每个原文索引加载一次。每题检索后即落盘，每个答案完成后更新；失败保存调用账并停止，不能忽略错误拼成成功主表。完成后的题文件有 hash，评分前再次校验。
 
-已缓存的前端 `--frontend` 必须携带 `question_hash`、`snapshot_hash`、`mentions`。每个 surface 必须是原问题中的字面子串；有歧义的重复位置必须给准确 Unicode offsets。默认保守字面扫描仅适合离线验收，不代表 LLM 抽取能力。
+## 7. 回放、诊断与评分
 
-## 批量输入、失败与成本
+`retrieve` 输出可直接用于 `replay`；批量结果先取出相应 rows 中单个 run JSON：
 
-questions JSON 是列表，每行只能包含 `question_id, owner_id, snapshot_id, question, mentions?`；出现 gold/reference/answer 等其他字段则拒绝。所有行先验证 scope，再开始模型调用。输出按 question_id 哈希命名，避免路径注入。每题完成立即落盘；失败保存调用账与失败类型，不静默继续、覆盖或自动恢复。
+```bash
+python -m eitr replay --index /path/index.json --corpus /path/corpus.json --config /path/config.json --tokenizer json --tokenizer-file /path/tokenizer.json --tokenizer-sha256 VERIFIED_SHA256 --run /path/run.json --out artifacts/replay.json
+python -m eitr grade --batch /path/owner-batch --labels /path/labels.json --index /path/index.json --api-base https://judge.example/v1 --model PINNED_JUDGE --key-env JUDGE_KEY --out artifacts/grades
+python -m eitr summarize --rows artifacts/grades/rows.json --bootstrap 2000 --seed 0 --out artifacts/summary.json
+```
 
-同题且证据包完全相同才复用回答，并保留原始调用用量以还原独立部署成本。`frontend_shared`、setup 时间、实际回答复用都有标记。P0 不分摊不存在的模型前端；P3 不计算也不收费其不使用的 cue-BM25 列。`compare` 的分臂时延不含共享前端/初始化，不能直接报为独立端到端时延。
+labels 每题包含 `question_id,owner_id,snapshot_id,references:[...],source_ids:[...]`。评分过程才读取标签；judge 只看到问题、参考与预测，看不到 arm 和成本。同题同预测可复用判分；人工复核样本和分歧仍是正式评测操作，程序不伪造人工结论。
 
-日志包括 scope/hash、query groups、所有图路径与截断、候选池、成功入包步骤、覆盖前后状态、收益密度、真实 token 增量、BM25 扫描数、边访问数、分阶段 wall time、调用 traces、最终引用。当前 BM25 实现扫描原文索引，约 O(原文atom数×查询数)；不是规模无关或毫秒级保证。计入本地 CPU 和 pack 重渲染成本。
+诊断区分无映射/图不可达、图工作上限、每 tag 筛选、direct cap、全局候选 cap、预算/选择丢失，并报告各阶段来源召回。不受在线工作限额的两跳可达 oracle 仅在评分阶段计算。来源出现不等于相关答案跨度完整，因此诊断不会自动宣称“证据充分但模型错误”。
 
-`eitr summarize --rows scored.json --out summary.json` 只做逐 owner、逐题配对描述。评分数据每题每臂一行：`question_id, owner_id, arm, correct:boolean, online_tokens:int`。重复回答先在题内处理；本命令拒绝将同题重复当独立样本。没有自动质量评审或非劣效宣称。
+bootstrap 按 owner 重采样，保留 owner 内配对题；仅一个 owner 不生成区间，owner 很少时显式标记不稳定。重复生成不增加独立题数。程序不会自动得出 2pp 非劣效结论。
 
-## 验证记录与下一步
+## 8. 成本与独立计时
 
-见 `docs/eitr_validation_20261119.md`。下一轮效果实验前仍要：冻结正常题及协议、核验真实日期、接入真实前端和回答模型、完整实现/对齐原生 MRAgent 基线。主方法代码已经可以运行；P5_proxy 的结果必须保持独立名称，正式 P5 未完成时不能宣称六臂已全部就绪。
+compare/batch 为机制比较复用前端与相关性缓存；这些分臂时间不用于端到端 p50/p95。相同证据包可复用回答，但独立部署费用仍计一次回答。
+
+```bash
+python -m eitr benchmark --index /path/index.json --corpus /path/corpus.json --questions /path/questions.json --arms P3 P4 --repeats 3 --tokenizer json --tokenizer-file /path/tokenizer.json --tokenizer-sha256 VERIFIED_SHA256 --llm-frontend --generate --api-base https://provider.example/v1 --model PINNED_MODEL --key-env YOUR_API_KEY --out artifacts/benchmark.json
+python -m eitr cost-report --runs artifacts/benchmark.json --prices /path/prices.json --offline /path/lifecycle.json --out artifacts/cost.json
+```
+
+benchmark 每臂每次独立执行前端/选择/回答，轮换运行顺序；逐运行落盘并保存失败 manifest。原文索引预加载，冷加载另记；supplied 前端和 retrieval-only 模式显式标记，未生成答案的时间不会冒充完整回答延迟。
+
+成本汇总保留阶段调用数、失败数、输入/输出 token、p50/p95、CPU/进程 RSS、上下文大小。缺失 API usage 是 unknown/null，不是零。lifecycle 输入：`baseline_arm,method_arm,added_build_seconds,added_build_usd,queries_per_snapshot`，分别计算时间和货币回本点以及每次快照更新周期的净节省；不节省则没有回本点。
+
+## 9. 验收而非效果结论
+
+原生集成测试：
+
+```bash
+EITR_NATIVE_ROOT=/path/MRAgent python -m pytest -q
+```
+
+未提供上游 checkout 时，这些特定集成项明确 skip；普通算法/接口测试仍执行。真实缓存工程验收入口是 `scripts/eitr_acceptance.py --help`。它检查缓存 SHA、来源日期、R_cue/R_fact、P0–P5 与精确回放，P5 使用脚本化响应驱动实际原生循环，**不调用 LLM、不产生可用于论文的 QA 成绩**。
+
+代码验收能够减少实现错误造成的混淆，不能保证不存在任何 bug，也不能代替冻结数据上的效果实验。完成首轮协议后优先比较 P3/P4，并保留 P0/P1/P2/P5；不扩展方法边界。

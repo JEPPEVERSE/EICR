@@ -21,8 +21,54 @@ def import_pack(pack, manifest):
         require(value is None or isinstance(value, str), "Invalid session datetime")
         s["session_datetime"] = value
         s["datetime_provenance"] = "manifest_verified" if value else "unavailable"
-        s["speaker"] = s["text"].split(":", 1)[0] if ":" in s["text"] else "unknown"
+        s["speaker"] = s["text"].split(":", 1)[0].strip() if ":" in s["text"] else "unknown"
     legacy["provenance"]["keyword_cache_is_pre_injection"] = True
+    # Reproduce the native builder's single-origin speaker navigation link,
+    # separately labelled so it NEVER becomes a cue-profile feature. Leaving it
+    # out would silently change the native entry graph for both P4 and P5.
+    source_map = {s["source_id"]: s for s in legacy["sources"]}
+    cue_ids = {c["text"]: c["cue_id"] for c in legacy["cues"]}
+    existing = {(e["cue_id"], e["evidence_id"]) for e in legacy["edges"]}
+    unsupported_speaker_facts = []
+    for fact in legacy["evidence"]:
+        if len(fact["origins"]) != 1:
+            unsupported_speaker_facts.append(fact["evidence_id"])
+            continue
+        source = source_map[fact["origins"][0]]
+        speaker = source["speaker"]
+        if ":" not in source["text"] or not speaker:
+            unsupported_speaker_facts.append(fact["evidence_id"])
+            continue
+        if speaker not in cue_ids:
+            cid = identifier("cue", [legacy["owner_id"], speaker])
+            cue_ids[speaker] = cid
+            legacy["cues"].append({"cue_id": cid, "text": speaker, "native_key": speaker, "aliases": [], "scope_role": "entry"})
+        cid = cue_ids[speaker]
+        if (cid, fact["evidence_id"]) not in existing:
+            legacy["edges"].append({"cue_id": cid, "evidence_id": fact["evidence_id"], "edge_origin": "injected_speaker"})
+    legacy["provenance"]["speaker_navigation_unavailable_facts"] = unsupported_speaker_facts
+    allowed_facts = {f["evidence_id"] for f in legacy["evidence"]}
+    allowed_sources = {s["source_id"] for s in legacy["sources"]}
+    auxiliary = {"topics": [], "personal": []}
+    for pos, record in enumerate(pack["rewrites"], 1):
+        payload = next(iter(record.values()))
+        if not payload:
+            continue
+        for key, text in (payload.get("topics") or {}).items():
+            fids = []
+            for fact in payload.get("sentence") or []:
+                ts = fact.get("topic") or []
+                if key in ([ts] if isinstance(ts, str) else ts): fids.append(fact["id"])
+            # Do not retain a topic summary partly derived from excluded facts.
+            if fids and set(fids) <= allowed_facts:
+                auxiliary["topics"].append({"topic_id": f"D{pos}:{key}", "text": text, "fact_ids": sorted(set(fids))})
+        for item in payload.get("personal_sentences") or []:
+            origins = item.get("origin") or []
+            if isinstance(origins, str): origins = [x.strip() for x in origins.split(",") if x.strip()]
+            if origins and set(origins) <= allowed_sources:
+                auxiliary["personal"].append({"personal_id": f"D{pos}:{item['id']}", "person": item["person"],
+                    "aspect": item["tag"], "origins": sorted(set(origins))})
+    legacy["native_auxiliary"] = auxiliary
     return canonicalize(legacy)
 
 
@@ -108,6 +154,25 @@ def canonicalize(raw):
                       for c, t, f, o in sorted(links)],
             "feature_edges": [list(x) for x in sorted(feature_edges)],
             "provenance": deepcopy(provenance)}
+    if "native_auxiliary" in raw:
+        aux = deepcopy(raw["native_auxiliary"])
+        require(isinstance(aux, dict) and set(aux) == {"topics", "personal"}, "Invalid native auxiliary graph")
+        for kind, idkey in (("topics", "topic_id"), ("personal", "personal_id")):
+            require(isinstance(aux[kind], list), "Invalid native auxiliary records")
+            seen = set()
+            for node in aux[kind]:
+                require(isinstance(node, dict) and isinstance(node.get(idkey), str) and node[idkey]
+                        and node[idkey] not in seen, "Invalid auxiliary identity")
+                seen.add(node[idkey])
+                if kind == "topics":
+                    require(isinstance(node.get("text"), str) and isinstance(node.get("fact_ids"), list)
+                            and node["fact_ids"] and set(node["fact_ids"]) <= set(fact_map), "Invalid topic provenance")
+                else:
+                    require(all(isinstance(node.get(k), str) and node[k] for k in ("person", "aspect"))
+                            and isinstance(node.get("origins"), list) and node["origins"]
+                            and set(node["origins"]) <= set(source_map), "Invalid personal provenance")
+            aux[kind].sort(key=lambda x: x[idkey])
+        body["native_auxiliary"] = aux
     return {**body, "content_hash": digest(body)}
 
 
@@ -118,6 +183,7 @@ def validate_snapshot(snapshot):
     # Reconstruct and revalidate the underlying native relationships, not only a checksum.
     tag_names = {t["tag_id"]: t["text"] for t in snapshot["tags"]}
     raw = {k: deepcopy(snapshot[k]) for k in ("owner_id", "snapshot_id", "sources", "cues", "provenance")}
+    if "native_auxiliary" in snapshot: raw["native_auxiliary"] = deepcopy(snapshot["native_auxiliary"])
     raw["evidence"] = [{"evidence_id": f["fact_id"], "text": f["text"], "origins": f["origins"],
                         "tags": [tag_names[t] for t in f["tag_ids"]], "metadata": f["metadata"]}
                        for f in snapshot["facts"]]

@@ -1,6 +1,6 @@
 # EICR
 
-**2026-11-19：当前研究主线已转向 EITR 图记忆低成本检索。** 新实现位于 `src/eitr/`，包含独立 tag 索引、有界候选扩展、多入口覆盖调度和 P0–P4 对照。使用 `eitr` 命令，详见 [EITR 实现与运行说明](docs/eitr_implementation_v2.md)。下文与 `eicr` 命令保留旧入口扰动研究，两个索引格式不可混用。
+**2026-11-19：当前研究主线已转向 EITR 图记忆低成本检索，版本 0.2.0。** `src/eitr/` 实现下游 cue 分布、tag 关联图、动态覆盖调度、P0–P5、离线原文索引、协议冻结、回放和独立评分。P5 加载校验过的 MRAgent 实际工具循环；原生 M0 不混入受控消融。使用 `eitr` 命令，详见 [运行说明](docs/eitr_implementation_v2.md)和[完整性验收](docs/eitr_completion_audit_20261119.md)。下文与 `eicr` 命令保留旧入口扰动研究，两个索引格式不可混用。
 
 Evidence-Induced Cue Representation：从已有 cue 的下游证据计算稀疏表示，用于入口扰动下的关联诊断与有限预算查证。
 

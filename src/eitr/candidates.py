@@ -17,7 +17,7 @@ def enumerate_graph(index, query, config, expand=True):
         best[gid] = {(t, 0): 1. for t in g["seed_tags"]}
         support[gid] = {t: 1. for t in g["seed_tags"]}
         paths[gid] = {t: [t] for t in g["seed_tags"]}
-    trace, popped, evaluations, rejected = [], 0, 0, 0
+    trace, popped, evaluations, rejected = [], 0, 0, []
     stop = "exhausted"
     cycle = deque(g["group_id"] for g in active)
     while cycle and expand:
@@ -48,7 +48,9 @@ def enumerate_graph(index, query, config, expand=True):
             if value <= 0:
                 continue
             if target not in reached and len(reached) >= config.max_reached_tags:
-                rejected += 1; continue
+                rejected.append({"group": gid, "from": tag, "target": target, "depth": depth+1,
+                                 "reach": value, "path": list(path + (target,)), "reason": "tag_cap"})
+                continue
             reached.add(target)
             depths[target] = min(depths.get(target, depth+1), depth+1)
             if value > support[gid].get(target, 0):
@@ -62,7 +64,9 @@ def enumerate_graph(index, query, config, expand=True):
                  for t in sorted(reached)}
     return {"support": aggregate, "group_support": support, "paths": paths, "depths": depths,
             "trace": trace, "state_pops": popped, "edge_evaluations": evaluations,
-            "new_tag_rejections": rejected, "stop": stop,
+            "new_tag_rejections": len(rejected), "rejected_tags": rejected, "stop": stop,
+            "frontier": [{"group": gid, "reach": -neg, "depth": d, "tag": t, "path": list(p)}
+                         for gid in sorted(queues) for neg, d, t, p in sorted(queues[gid])] if expand else [],
             "remaining_states": sum(map(len, queues.values())) if expand else 0}
 
 
@@ -84,16 +88,23 @@ def candidate_pool(index, query, graph, corpus, whole_scores, config, mode="grap
             tag_facts[t].add(fid)
     legal_tags = [] if mode == "flat" else sorted(graph["support"], key=lambda t: (
         graph["depths"][t], -graph["support"][t], t))
-    per_tag, atom_tags = {}, defaultdict(set)
+    per_tag, atom_tags, truncations = {}, defaultdict(set), []
+    reachable_sources, shortlisted_sources = set(), set()
     for t in legal_tags:
         fids = seed_facts[t] if t in seed_facts else tag_facts[t]
         origins = {o for fid in fids for o in facts[fid]["origins"]}
+        reachable_sources.update(origins)
         ids = {a for o in origins for a in corpus.source_atoms[o]}
         for a in ids:
             atom_tags[a].add(t)
-        per_tag[t] = sorted(ids, key=lambda a: (-whole_scores[a], a))[:config.max_core_atoms_per_tag]
-    direct = sorted((a for a in corpus.atoms if whole_scores[a] > 0), key=lambda a: (-whole_scores[a], a))[:config.direct_core_reservation]
-    if mode == "strict_seed": direct = []
+        ordered = sorted(ids, key=lambda a: (-whole_scores[a], a))
+        per_tag[t] = ordered[:config.max_core_atoms_per_tag]
+        shortlisted_sources.update(corpus.atoms[a]["source_id"] for a in per_tag[t])
+        if len(ordered) > len(per_tag[t]):
+            truncations.append({"tag": t, "reason": "per_tag_core_cap", "omitted_core_ids": ordered[len(per_tag[t]):]})
+    direct_order = sorted((a for a in corpus.atoms if whole_scores[a] > 0), key=lambda a: (-whole_scores[a], a))
+    if mode == "strict_seed": direct_order = []
+    direct = direct_order[:config.direct_core_reservation]
     actions, atoms, omitted = {}, set(), []
     def admit(a):
         if a in actions: return
@@ -113,7 +124,19 @@ def candidate_pool(index, query, graph, corpus, whole_scores, config, mode="grap
             if pos < len(per_tag[t]): admit(per_tag[t][pos])
     result = {"actions": [actions[a] for a in sorted(actions)], "atom_ids": sorted(atoms),
               "tag_order": legal_tags, "mode": mode, "omitted": omitted,
-              "index_hash": index.index_hash, "query_hash": digest(query), "corpus_hash": corpus.identity,
+              "per_tag_truncations": truncations,
+              "direct_truncation": {"reason": "direct_core_cap", "positive_core_count": len(direct_order),
+                                     "omitted_core_ids": direct_order[len(direct):]},
+              "source_stages": {"seed": sorted({o for origins in group_sources.values() for o in origins}),
+                  "graph_reachable": sorted(reachable_sources), "graph_shortlist": sorted(shortlisted_sources),
+                  "direct_before_cap": sorted({corpus.atoms[a]["source_id"] for a in direct_order}),
+                  "direct": sorted({corpus.atoms[a]["source_id"] for a in direct}),
+                  "before_global_cap": sorted({corpus.atoms[c]["source_id"]
+                       for a in set(direct) | {a for ids in per_tag.values() for a in ids} for c in corpus.contexts[a]}),
+                  "candidate": sorted({corpus.atoms[a]["source_id"] for a in atoms})},
+              "index_hash": index.index_hash,
+              "query_hash": digest({k:query.get(k) for k in ("index_hash","question","groups","mapping_config_hash")}),
+              "corpus_hash": corpus.identity,
               "graph_hash": digest(graph), "config_hash": digest(config.to_dict())}
     result["pool_hash"] = digest(result)
     return result

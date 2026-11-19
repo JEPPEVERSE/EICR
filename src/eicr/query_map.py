@@ -123,6 +123,7 @@ def map_query(index, question, mentions=None, *, question_id=None, answer_need="
         exact, alias = registry[key], aliases[key]
         # Alias collisions with native text are ambiguous rather than hidden.
         candidates = sorted(exact | alias)
+        candidate_count = len(candidates)
         method = "exact" if exact else "explicit_alias" if alias else "none"
         status = "unique" if len(candidates) == 1 else "ambiguous" if candidates else "unmapped"
         if not candidates:
@@ -135,6 +136,7 @@ def map_query(index, question, mentions=None, *, question_id=None, answer_need="
                 if score > 0:
                     ranked.append((-score, cue["cue_id"]))
             candidates = [cid for _, cid in sorted(ranked)[:3]]
+            candidate_count = len(ranked)
             if candidates:
                 status, method = "ambiguous", "lexical_fuzzy"
         if status == "unique":
@@ -142,7 +144,8 @@ def map_query(index, question, mentions=None, *, question_id=None, answer_need="
             if cue.get("scope_role") == "scope":
                 role = "scope"
         mapped.append({"span_start": start, "span_end": end, "surface_text": mention["surface_text"],
-                       "role": role, "candidate_cue_ids": candidates[:3], "match_method": method, "status": status})
+                       "role": role, "candidate_cue_ids": candidates[:3], "match_method": method, "status": status,
+                       "candidate_cue_count": candidate_count, "candidate_cues_truncated": candidate_count > 3})
     return {"question_id": question_id or digest(question)[:16], "original_question": question,
             "snapshot_id": index.records["snapshot_id"], "index_hash": index.index_hash,
             "answer_need": answer_need, "query_shape": query_shape, "mentions": mapped,

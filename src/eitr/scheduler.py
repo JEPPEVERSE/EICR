@@ -1,5 +1,6 @@
 """Exact coverage marginals and full-render cost; no sufficiency claims."""
 from collections import defaultdict
+from time import perf_counter
 from eicr.contracts import digest, require
 
 ARMS = ("P0", "P1", "P2", "P3", "P4", "P4_no_support", "P4_no_coverage", "strict_seed")
@@ -31,6 +32,8 @@ class Scheduler:
         self.stop = "exhausted"
         self.phase_charges = defaultdict(int)
         self.unaffordable_evaluations = 0
+        self.alternatives, self.phase = [], "initial"
+        self.render_seconds, self.render_calls = 0., 0
 
     def evaluate(self, action, eta, support, remaining=None):
         if self.evaluations >= self.config.max_score_evaluations:
@@ -38,17 +41,27 @@ class Scheduler:
         fresh = set(action["atoms"]) - self.selected
         if not fresh: return None
         self.evaluations += 1
+        tick = perf_counter()
         proposal = self.corpus.render(self.selected | fresh)
+        self.render_seconds += perf_counter()-tick
+        self.render_calls += 1
         cost = proposal["used_tokens"] - self.packet["used_tokens"]
+        event = {"step": self.successful, "phase": self.phase, "action_id": action["action_id"],
+                 "fresh_atoms": sorted(fresh), "cost": cost, "proposal_tokens": proposal["used_tokens"],
+                 "phase_remaining": remaining}
+        self.alternatives.append(event)
         if proposal["used_tokens"] > self.config.evidence_budget or (remaining is not None and max(0, cost) > remaining):
             self.unaffordable_evaluations += 1
+            event["status"] = "over_packet_budget" if proposal["used_tokens"] > self.config.evidence_budget else "over_phase_quota"
             return None
-        rel = sum(self.corpus.atoms[a]["text_tokens"] * self.q[a] for a in fresh)
+        rel = sum(self.corpus.atoms[a]["text_tokens"] * self.q[a] for a in sorted(fresh))
         candidate = [max(values[a] for a in fresh) for values in self.cues]
         cov = coverage_gain(self.C, candidate)
         factor = self.config.support_floor + (1-self.config.support_floor) * action["support"] if support else 1.
         numerator = eta * rel + (1-eta) * self.config.reference_tokens * cov
         priority = factor * numerator / max(1, cost)
+        event.update(status="scored", coverage_gain=cov, rel_gain=rel / self.config.reference_tokens,
+                     priority=priority, support_factor=factor, coverage_before=list(self.C))
         return {"action": action, "proposal": proposal, "fresh": fresh,
                 "cost": cost, "rel": rel / self.config.reference_tokens, "cov": cov,
                 "rel_density": rel / max(1, cost),
@@ -89,13 +102,18 @@ class Scheduler:
         return True
 
     def greedy(self, actions, phase, eta=1., support=False, cap=None):
+        self.phase = phase
         while self.can_continue():
             remaining = None if cap is None else max(0, cap-self.phase_charges[phase])
             choice = self.best(actions, eta, support, remaining)
-            if choice is None: break
+            if choice is None:
+                if self.stop not in ("action_cap", "score_evaluation_cap"):
+                    self.stop = "no_positive_feasible_action" if any(set(a["atoms"])-self.selected for a in actions) else "exhausted"
+                break
             self.commit(choice, phase)
 
     def seed_round_robin(self, cap):
+        self.phase = "seed"
         gids = sorted({g for a in self.actions for g in a["seed_groups"]})
         while self.can_continue():
             changed = False
@@ -139,6 +157,8 @@ class Scheduler:
         return {**final, "budget_tokens": self.config.evidence_budget,
                 "unused_tokens": self.config.evidence_budget-final["used_tokens"], "coverage": self.C,
                 "ledger": self.trace, "phase_charges": dict(self.phase_charges),
+                "alternatives": self.alternatives, "render_seconds": self.render_seconds,
+                "render_calls": self.render_calls,
                 "action_evaluations": self.evaluations, "successful_actions": self.successful,
                 "unaffordable_evaluations": self.unaffordable_evaluations, "stop": self.stop,
                 "pool_hash": self.pool["pool_hash"], "arm": arm,
