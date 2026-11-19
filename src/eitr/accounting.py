@@ -47,12 +47,13 @@ def cost_ledger(run, prices=None):
     if prices is not None:
         require(set(prices)=={'input_per_million','output_per_million'} and
                 all(type(v) in (float,int) and math.isfinite(v) and v>=0 for v in prices.values()), 'Invalid price table')
-        if total['usage_complete']:
+        if total['usage_complete'] and not any(c.get('billing_kind') == 'rerank_tokens' for calls in run['calls'].values() for c in calls):
             total['usd']=(total['known_input_tokens']*prices['input_per_million']+
                           total['known_output_tokens']*prices['output_per_million'])/1e6
     return {'stages':stages,'independent_deployment':total,
             'experimental_answer_reused':run.get('answer_reused_in_experiment',False),
-            'note':'Reused frontend/answer traces are charged once per independent deployment, not zero.'}
+            'unpriced_rerank':any(c.get('billing_kind') == 'rerank_tokens' for calls in run['calls'].values() for c in calls),
+            'note':'Reused traces retain deployment cost. A chat-model price must not be applied to reranking tokens; USD is unknown until priced separately.'}
 
 
 def percentile(values,p):
@@ -78,7 +79,9 @@ def cost_report(runs, prices=None, offline=None):
     for arm, rows in grouped.items():
         ledgers=[cost_ledger(r,prices)['independent_deployment'] for r in rows]
         # Never turn shared-setup replay fragments into end-to-end latency.
-        measured=[r for r in rows if r.get('benchmark',{}).get('independent_request')]
+        measured=[r for r in rows if r.get('benchmark',{}).get('independent_request')
+                  and not r.get('benchmark',{}).get('rerank_cache_reused')
+                  and not (r.get('semantic_rerank') or {}).get('cache_reused')]
         durations=[r['benchmark']['wall_seconds'] for r in measured if r['benchmark'].get('has_answer_call')]
         retrieval=[r['timing_seconds']['retrieval_total'] for r in rows if r.get('benchmark',{}).get('independent_request')]
         complete=all(l['usage_complete'] for l in ledgers)

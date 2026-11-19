@@ -25,6 +25,8 @@ class Config:
     reference_tokens: int = 128
     eta: float = 0.5
     support_floor: float = 0.1
+    interaction_weight: float = 0.15
+    interaction_top_edges: int = 3
     evidence_budget: int = 6000
     direct_fraction: float = 1 / 3
     seed_fraction: float = 1 / 6
@@ -32,9 +34,16 @@ class Config:
     max_score_evaluations: int = 100000
     explorer_rounds: int = 8
     explorer_actions_per_round: int = 4
+    mmr_lambda: float = 0.85
+    mmr_min_similarity: float = 0.85
+    ppr_restart_probability: float = 0.15
+    ppr_tolerance: float = 1e-8
+    ppr_max_iterations: int = 100
+    ppr_max_edge_evaluations: int = 50000000
 
     def __post_init__(self):
-        fractional = {"path_decay", "eta", "support_floor", "direct_fraction", "seed_fraction"}
+        fractional = {"path_decay", "eta", "support_floor", "interaction_weight", "direct_fraction", "seed_fraction",
+                      "mmr_lambda", "mmr_min_similarity", "ppr_restart_probability", "ppr_tolerance"}
         nonnegative = {"max_hops", "context_each_side"}
         for f in fields(self):
             v = getattr(self, f.name)
@@ -45,6 +54,8 @@ class Config:
                 require(type(v) is int and v >= (0 if f.name in nonnegative else 1),
                         "Invalid integer: " + f.name)
         require(self.support_floor > 0, "Support floor must protect isolated entries")
+        require(0 < self.ppr_restart_probability < 1 and self.ppr_tolerance > 0, "Invalid PPR convergence settings")
+        require(self.mmr_lambda > 0, "MMR must retain relevance")
         require(self.direct_fraction + self.seed_fraction <= 1, "Reserve fractions exceed budget")
         require(self.max_seed_tags <= self.max_reached_tags, "Seed cap exceeds graph cap")
         require(self.direct_core_reservation <= self.max_core_atoms <= self.max_candidate_atoms,

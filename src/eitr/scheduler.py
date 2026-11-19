@@ -3,7 +3,7 @@ from collections import defaultdict
 from time import perf_counter
 from eicr.contracts import digest, require
 
-ARMS = ("P0", "P1", "P2", "P3", "P4", "P4_no_support", "P4_no_coverage", "strict_seed")
+ARMS = ("P0", "P1", "P2", "P3", "P4", "P4_no_support", "P4_no_coverage", "P4_active", "strict_seed")
 
 
 def coverage_gain(current, candidate):
@@ -11,14 +11,48 @@ def coverage_gain(current, candidate):
     return sum(max(0., a-c) for c, a in zip(current, candidate)) / len(current) if current else 0.
 
 
+def build_interaction_matrix(index, query, top_edges=3):
+    """Build a bounded cue-group interaction matrix from existing tag edges.
+
+    The matrix is a retrieval preference signal. It does not assert that two
+    cue groups describe the same event or that an edge is evidence of truth.
+    """
+    require(type(top_edges) is int and top_edges >= 1, "Invalid interaction edge cap")
+    tag_sets = [set(group["seed_tags"]) for group in query["groups"]]
+    seeds = set().union(*tag_sets)
+    # Read only admitted seed rows. Two reciprocal edges describe one tag pair.
+    edges = {(tag, edge["target"]): edge["score"] for tag in seeds
+             for edge in index.neighbors[tag] if edge["target"] in seeds}
+    matrix = [[0. for _ in tag_sets] for _ in tag_sets]
+    for i, left in enumerate(tag_sets):
+        for j in range(i):
+            right = tag_sets[j]
+            # Shared seeds cannot independently corroborate either group.
+            values = sorted((max(edges.get((a, b), 0.), edges.get((b, a), 0.))
+                             for a in left - right for b in right - left), reverse=True)
+            top = [value for value in values[:top_edges] if value > 0]
+            if top:
+                matrix[i][j] = matrix[j][i] = sum(top) / len(top)
+    for i, row in enumerate(matrix):
+        scale = max(1., sum(row))  # Preserve weak isolated associations.
+        matrix[i] = [value / scale for value in row]
+    return matrix
+
+
 class Scheduler:
-    def __init__(self, corpus, pool, q_scores, cue_scores, config):
+    def __init__(self, corpus, pool, q_scores, cue_scores, config, interaction_matrix=None):
         require(pool["corpus_hash"] == corpus.identity, "Pool/corpus mismatch")
         require(pool["config_hash"] == digest(config.to_dict()), "Pool/config mismatch")
         require(pool["pool_hash"] == digest({k: v for k, v in pool.items() if k != "pool_hash"}), "Pool hash mismatch")
         self.corpus, self.pool, self.config = corpus, pool, config
         self.actions = pool["actions"]
         self.q, self.cues = q_scores, cue_scores
+        self.interaction = interaction_matrix or []
+        require(not self.interaction or len(self.interaction) == len(self.cues),
+                "Interaction dimension mismatch")
+        for j, row in enumerate(self.interaction):
+            require(len(row) == len(self.cues) and row[j] == 0 and sum(row) <= 1 + 1e-12 and all(type(v) in (float, int) and 0 <= v <= 1 for v in row),
+                    "Invalid cue interaction matrix")
         for values in [q_scores] + cue_scores:
             require(set(pool["atom_ids"]) <= set(values) and all(
                 type(values[a]) in (float, int) and 0 <= values[a] <= 1 for a in pool["atom_ids"]), "Invalid relevance")
@@ -34,6 +68,8 @@ class Scheduler:
         self.unaffordable_evaluations = 0
         self.alternatives, self.phase = [], "initial"
         self.render_seconds, self.render_calls = 0., 0
+        self.active_interaction = False
+        self.influence = [0.] * len(cue_scores)
 
     def evaluate(self, action, eta, support, remaining=None):
         if self.evaluations >= self.config.max_score_evaluations:
@@ -57,15 +93,25 @@ class Scheduler:
         rel = sum(self.corpus.atoms[a]["text_tokens"] * self.q[a] for a in sorted(fresh))
         candidate = [max(values[a] for a in fresh) for values in self.cues]
         cov = coverage_gain(self.C, candidate)
+        interaction = 0.
+        if self.active_interaction and self.phase == "shared" and candidate:
+            interaction = min(cov, sum(max(0., a-c) * h for a, c, h in
+                                       zip(candidate, self.C, self.influence)) / len(candidate))
         factor = self.config.support_floor + (1-self.config.support_floor) * action["support"] if support else 1.
-        numerator = eta * rel + (1-eta) * self.config.reference_tokens * cov
+        committee_gain = (cov + self.config.interaction_weight * interaction
+                          if self.active_interaction else cov)
+        numerator = eta * rel + (1-eta) * self.config.reference_tokens * committee_gain
         priority = factor * numerator / max(1, cost)
         event.update(status="scored", coverage_gain=cov, rel_gain=rel / self.config.reference_tokens,
-                     priority=priority, support_factor=factor, coverage_before=list(self.C))
+                     interaction_gain=interaction, committee_gain=committee_gain,
+                     priority=priority, support_factor=factor,
+                     interaction_enabled=self.active_interaction, coverage_before=list(self.C))
         return {"action": action, "proposal": proposal, "fresh": fresh,
                 "cost": cost, "rel": rel / self.config.reference_tokens, "cov": cov,
+                "interaction": interaction, "committee_gain": committee_gain,
                 "rel_density": rel / max(1, cost),
                 "cov_density": self.config.reference_tokens * cov / max(1, cost),
+                "interaction_density": self.config.reference_tokens * interaction / max(1, cost),
                 "support_factor": factor, "priority": priority, "numerator": numerator}
 
     def commit(self, choice, phase):
@@ -75,13 +121,18 @@ class Scheduler:
         self.packet = choice["proposal"]
         for j, values in enumerate(self.cues):
             self.C[j] = max(self.C[j], max(values[a] for a in choice["fresh"]))
+        if self.active_interaction:
+            self.influence = [sum(w * c for w, c in zip(row, self.C)) for row in self.interaction]
         self.successful += 1
         self.phase_charges[phase] += max(0, choice["cost"])
         self.trace.append({"action_id": choice["action"]["action_id"], "phase": phase,
                            "fresh_atoms": sorted(choice["fresh"]), "cost": choice["cost"],
                            "packet_tokens": self.packet["used_tokens"], "coverage_before": previous,
                            "coverage_after": list(self.C), "rel_gain": choice["rel"], "coverage_gain": choice["cov"],
+                           "interaction_gain": choice.get("interaction", 0.),
+                           "committee_gain": choice.get("committee_gain", choice["cov"]),
                            "rel_density": choice["rel_density"], "coverage_density": choice["cov_density"],
+                           "interaction_density": choice.get("interaction_density", 0.),
                            "support_factor": choice["support_factor"], "priority": choice["priority"]})
 
     def best(self, actions, eta, support, remaining=None, allow_zero=False):
@@ -89,7 +140,7 @@ class Scheduler:
         for action in actions:
             if self.evaluations >= self.config.max_score_evaluations: break
             choice = self.evaluate(action, eta, support, remaining)
-            if choice is None or (choice["priority"] <= 0 and not allow_zero): continue
+            if choice is None or choice["priority"] < 0 or (choice["priority"] == 0 and not allow_zero): continue
             key = (-choice["priority"], -choice["numerator"], choice["cost"], action["action_id"])
             if winner is None or key < winner[0]: winner = (key, choice)
         return winner[1] if winner else None
@@ -139,6 +190,8 @@ class Scheduler:
 
     def select(self, arm, has_seeds):
         require(arm in ARMS, "Unknown scheduler arm")
+        self.active_interaction = arm == "P4_active"
+        require(not self.active_interaction or len(self.interaction) == len(self.cues), "Missing cue interaction matrix")
         if arm == "P0" or (not has_seeds and arm != "strict_seed"):
             self.greedy(self.actions, "direct_full")
         elif arm == "strict_seed":
@@ -150,7 +203,7 @@ class Scheduler:
             if arm == "P2":
                 self.static()
             else:
-                eta = self.config.eta if arm in ("P4", "P4_no_support") and self.cues else 1.
+                eta = self.config.eta if arm in ("P4", "P4_no_support", "P4_active") and self.cues else 1.
                 self.greedy(self.actions, "shared", eta=eta, support=arm in ("P4", "P4_no_coverage"))
         final = self.corpus.render(self.selected)
         require(final == self.packet and final["used_tokens"] <= self.config.evidence_budget, "Final packet contract failed")
@@ -161,5 +214,7 @@ class Scheduler:
                 "render_calls": self.render_calls,
                 "action_evaluations": self.evaluations, "successful_actions": self.successful,
                 "unaffordable_evaluations": self.unaffordable_evaluations, "stop": self.stop,
+                "interaction_matrix": self.interaction if self.active_interaction else [],
+                "interaction_weight": self.config.interaction_weight if self.active_interaction else 0.,
                 "pool_hash": self.pool["pool_hash"], "arm": arm,
                 "fallback": not has_seeds and arm not in ("P0", "strict_seed")}

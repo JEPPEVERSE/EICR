@@ -88,6 +88,10 @@ def candidate_pool(index, query, graph, corpus, whole_scores, config, mode="grap
             tag_facts[t].add(fid)
     legal_tags = [] if mode == "flat" else sorted(graph["support"], key=lambda t: (
         graph["depths"][t], -graph["support"][t], t))
+    if mode != "flat" and "candidate_order" in graph:
+        require(set(graph["candidate_order"]) == set(legal_tags) and len(graph["candidate_order"]) == len(legal_tags),
+                "Invalid diffusion candidate order")
+        legal_tags = graph["candidate_order"]
     per_tag, atom_tags, truncations = {}, defaultdict(set), []
     reachable_sources, shortlisted_sources = set(), set()
     for t in legal_tags:

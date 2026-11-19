@@ -85,6 +85,17 @@ cov_density = 128 * delta_cov / max(1, actual_delta_tokens)
 priority = [epsilon + (1-epsilon)*support] * [eta*rel_density+(1-eta)*cov_density]
 ```
 
+`P4_active` 在共享预算阶段对互补证据加分。对每对 cue group `j,k`，先剔除二者重合的 seed tag，再取两个集合之间最强的至多三条正权边的均值。同一对 tag 的双向边取最大值。每行除以 `max(1, 行和)`，保留弱关联的绝对尺度。状态 `C` 随证据提交更新。
+
+```text
+delta_j = max(0, a_j - C_j)
+interaction = mean_j delta_j * sum_k A[j,k] * C_k
+committee_gain = coverage_gain + interaction_weight * interaction
+priority = [eta*rel + (1-eta)*reference_tokens*committee_gain] / max(1, actual_delta_tokens)
+```
+
+旧 P4 继续提供支持度乘法对照。`P4_active` 的运行记录保存矩阵、证据选择轨迹和实际 token。回放时会从索引和查询重新计算矩阵并核对记录。用 `--arm P4_active` 选择交互版，或在 `--arms` 中与 `P4_no_support` 配对运行。
+
 `actual_delta_tokens` 是完整包重渲染后的增量，包含真实日期、speaker、来源头和分隔符。每次提交后重算覆盖、去重和成本。收益密度不再除第二次成本。覆盖满分不表示答案充分，也不停止后续相关证据读取。
 
 | arm | 行为 |
@@ -96,6 +107,7 @@ priority = [epsilon + (1-epsilon)*support] * [eta*rel_density+(1-eta)*cov_densit
 | P4 | 完整支持＋覆盖委员会 |
 | P4_no_support | Q=1，保留覆盖反馈 |
 | P4_no_coverage | eta=1，保留支持 |
+| P4_active | 去除支持乘法，加入 cue-group 状态交互收益 |
 | strict_seed | 仅种子诊断，无 direct 回退 |
 | P5 | 真实 MRAgent 工具循环，共用原文和回答协议 |
 

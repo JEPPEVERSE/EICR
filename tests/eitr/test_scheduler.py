@@ -7,7 +7,7 @@ from eitr.config import Config
 from eitr.query import map_groups
 from eitr.candidates import enumerate_graph,candidate_pool
 from eitr.evidence import Corpus
-from eitr.scheduler import Scheduler,coverage_gain
+from eitr.scheduler import Scheduler,build_interaction_matrix,coverage_gain
 
 
 def make(snapshot, **kwargs):
@@ -24,6 +24,57 @@ def test_true_coverage_marginal():
     assert coverage_gain([.2],[.8])==pytest.approx(.6)
     assert coverage_gain([1.],[1.])==0
     assert coverage_gain([],[])==0
+
+
+def test_interaction_matrix_is_bounded_and_normalized(snapshot):
+    config, _, _, _ = make(snapshot)
+    index=build_index(snapshot)
+    query=map_groups(index,'herbs halloumi shop train',config)
+    matrix=build_interaction_matrix(index,query,config.interaction_top_edges)
+    assert len(matrix)==len(query['groups'])
+    assert all(len(row)==len(matrix) and all(0<=v<=1 for v in row) for row in matrix)
+    assert all(sum(row) <= 1 + 1e-9 for row in matrix)
+
+
+def test_active_interaction_rewards_complement(snapshot):
+    config,corpus,pool,ids=make(snapshot,evidence_budget=2000)
+    q={a:.5 for a in corpus.atoms}
+    left={a:float(a==ids['D1:1']) for a in q}
+    right={a:float(a==ids['D1:2']) for a in q}
+    state=Scheduler(corpus,pool,q,[left,right],config,interaction_matrix=[[0.,.4],[.4,0.]])
+    state.active_interaction=True
+    state.phase='shared'
+    actions={a['core']:a for a in pool['actions']}
+    def choose(source):
+        return state.evaluate(actions[ids[source]],config.eta,False)
+    assert choose('D1:2')['interaction']==0
+    state.commit(choose('D1:1'),'shared')
+    complement=choose('D1:2')
+    assert complement['cov']==.5
+    assert complement['interaction']==pytest.approx(.2)
+    assert complement['committee_gain']==pytest.approx(.5 + .2*config.interaction_weight)
+    assert complement['support_factor']==1
+
+
+def test_shared_seed_and_unmapped_groups_cannot_vote_for_each_other():
+    from types import SimpleNamespace
+    index=SimpleNamespace(neighbors={'a':[{'target':'b','score':.3}], 'b':[], 'shared':[]})
+    groups=[{'seed_tags':['shared','a']}, {'seed_tags':['shared','b']},
+            {'seed_tags':['shared','a']}, {'seed_tags':[], 'candidate_tags':['b']}]
+    matrix=build_interaction_matrix(index,{'groups':groups})
+    assert matrix[0]==[0.,.3,0.,0.]
+    assert matrix[3]==[0.]*4
+
+
+def test_active_replay_and_zero_weight_control(snapshot):
+    from eitr.pipeline import compare
+    from eitr.experiment import replay
+    cfg=Config(interaction_weight=0.,evidence_budget=700)
+    idx=build_index(snapshot); tok=CharacterTokenizer(); corpus=Corpus(snapshot,tok,cfg)
+    runs=compare(idx,'herbs halloumi shop',tok,config=cfg,corpus=corpus,
+                 arms=['P4_no_support','P4_active'])['rows']
+    assert runs[0]['evidence_pack']['atom_ids']==runs[1]['evidence_pack']['atom_ids']
+    assert replay(runs[1],idx,corpus)['verified']
 
 
 def test_state_feedback_prefers_complement(snapshot):

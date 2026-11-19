@@ -21,6 +21,15 @@ def tokenizer_from(spec):
     return TiktokenTokenizer(spec['kind'])
 
 
+def model_backend(model, cls=ChatBackend):
+    required = {'api_base','model','key_env','max_output_tokens'}
+    require(isinstance(model, dict) and required <= set(model)
+            and set(model) <= required | {'enable_thinking','json_mode'}, 'Pin complete model settings')
+    return cls(model['api_base'], model['model'], model['key_env'],
+               max_output_tokens=model['max_output_tokens'], temperature=0,
+               enable_thinking=model.get('enable_thinking'), json_mode=model.get('json_mode', True))
+
+
 def validate_questions(questions, indexes, frontend):
     require(isinstance(questions,list) and questions, 'Empty question set')
     ids=set()
@@ -38,15 +47,20 @@ def validate_questions(questions, indexes, frontend):
 
 
 def freeze(spec):
-    require(isinstance(spec,dict) and set(spec)=={'config','arms','tokenizer','assets','questions','native','model','frontend','generate','require_dates','prices'}, 'Protocol fields must be explicit')
+    require(isinstance(spec,dict) and set(spec)-{'reranker'}=={'config','arms','tokenizer','assets','questions','native','model','frontend','generate','require_dates','prices'}, 'Protocol fields must be explicit')
     cfg=Config.from_dict(spec['config']); arms=spec['arms']
     require(isinstance(arms,list) and arms and len(set(arms))==len(arms) and set(arms)<=set(RUN_ARMS),'Invalid protocol arms')
-    require(spec['frontend'] in ('llm','supplied') and type(spec['generate']) is bool and type(spec['require_dates']) is bool,'Invalid protocol modes')
+    require(spec['frontend'] in ('llm','supplied','mragent') and type(spec['generate']) is bool and type(spec['require_dates']) is bool,'Invalid protocol modes')
     model=spec['model']
-    require(isinstance(model,dict) and set(model)=={'api_base','model','key_env','max_output_tokens'}, 'Pin complete model settings')
-    ChatBackend(model['api_base'],model['model'],model['key_env'],max_output_tokens=model['max_output_tokens'],temperature=0)
+    model_backend(model)
+    from .rerank import backend_from_spec
+    rspec = spec.get('reranker')
+    if rspec is not None: backend_from_spec(rspec)
+    require(not any(a.startswith('C_') for a in arms) or rspec is not None, 'Semantic arms require frozen reranker settings')
     tok=tokenizer_from(spec['tokenizer'])
-    require(spec['tokenizer']['kind']!='characters' or not (spec['generate'] or spec['frontend']=='llm' or 'P5' in arms), 'Live requests need the actual model tokenizer')
+    require(not (rspec and not rspec['cache_only'] and spec['tokenizer']['kind']=='characters'),
+            'Live reranking requires a real evidence tokenizer')
+    require(spec['tokenizer']['kind']!='characters' or not (spec['generate'] or spec['frontend'] in ('llm','mragent') or 'P5' in arms), 'Live requests need the actual model tokenizer')
     require(isinstance(spec['assets'],list) and spec['assets'],'No protocol assets')
     files={}; indexes={}; reports=[]
     def pin(path):
@@ -89,10 +103,16 @@ def verify_protocol(protocol):
 def run_protocol(protocol, output_dir):
     verify_protocol(protocol)
     spec=protocol['spec'];cfg=Config.from_dict(spec['config']);tok=tokenizer_from(spec['tokenizer'])
+    from .rerank import backend_from_spec
+    rspec=spec.get('reranker')
+    rb=backend_from_spec(rspec) if rspec else None
+    extra={'frontend_mode':'mragent' if spec['frontend']=='mragent' else 'literal',
+           'reranker':rb,'rerank_cache_dir':rspec['cache_dir'] if rspec else None,
+           'rerank_cache_only':rspec['cache_only'] if rspec else False}
     runtime=load_runtime(spec['native']['root'],read_json(spec['native']['manifest'])) if 'P5' in spec['arms'] else None
     model=spec['model']
-    def backend(cls=ChatBackend): return cls(model['api_base'],model['model'],model['key_env'],max_output_tokens=model['max_output_tokens'],temperature=0)
-    front=backend() if spec['frontend']=='llm' else None
+    def backend(cls=ChatBackend): return model_backend(model, cls)
+    front=backend() if spec['frontend'] in ('llm','mragent') else None
     answer=backend() if spec['generate'] else None
     explore=backend(ToolBackend) if runtime else None
     out=Path(output_dir);require(not out.exists(),'Experiment output exists');out.mkdir(parents=True)
@@ -108,7 +128,7 @@ def run_protocol(protocol, output_dir):
             if not subset: continue
             name=digest([index.snapshot['owner_id'],index.snapshot['snapshot_id']])[:24]
             run_batch(index,subset,tok,config=cfg,arms=spec['arms'],frontend_backend=front,answer_backend=answer,
-                      output_dir=out/name,corpus=corpus,native_runtime=runtime,exploration_backend=explore)
+                      output_dir=out/name,corpus=corpus,native_runtime=runtime,exploration_backend=explore,**extra)
             journal['completed'].append({'owner_id':index.snapshot['owner_id'],'snapshot_id':index.snapshot['snapshot_id'],'batch':name})
             write_json(out/'manifest.json',journal)
         journal['status']='complete';write_json(out/'manifest.json',journal)
@@ -118,7 +138,8 @@ def run_protocol(protocol, output_dir):
 
 
 def benchmark(index, questions, tokenizer, *, config, arms, corpus, repeats=1,
-              frontend_backend=None, answer_backend=None,native_runtime=None,exploration_backend=None,output_path=None):
+              frontend_backend=None, answer_backend=None,native_runtime=None,exploration_backend=None,output_path=None,
+              frontend_mode="literal",reranker=None,rerank_cache_dir=None,rerank_cache_only=False):
     require(type(repeats) is int and repeats>0 and arms and len(set(arms))==len(arms) and set(arms)<=set(RUN_ARMS),'Invalid benchmark settings')
     validate_questions(questions,{(index.snapshot['owner_id'],index.snapshot['snapshot_id']):index},'llm' if frontend_backend else 'supplied')
     if 'P5' in arms: require(native_runtime and exploration_backend and 'native_auxiliary' in index.snapshot,'P5 benchmark missing dependencies')
@@ -138,12 +159,18 @@ def benchmark(index, questions, tokenizer, *, config, arms, corpus, repeats=1,
                     meter=Meter()
                     if arm=='P5':
                         from .controlled import run_controlled
+                        from .pipeline import make_query
+                        query=make_query(index,q['question'],config,q.get('mentions'),frontend_backend,frontend_mode)
                         row=run_controlled(index,q['question'],tokenizer,native_runtime,exploration_backend,config=config,corpus=corpus,
-                            mentions=q.get('mentions'),frontend_backend=frontend_backend,answer_backend=answer_backend)
+                            query=query,answer_backend=answer_backend)
                     else:
                         row=retrieve(index,q['question'],tokenizer,config=config,arm=arm,corpus=corpus,mentions=q.get('mentions'),
-                                     frontend_backend=frontend_backend if arm!='P0' else None,answer_backend=answer_backend)
-                    row['benchmark']={**meter.result(),'independent_request':True,'corpus_state':'preloaded',
+                                     frontend_backend=frontend_backend if arm!='P0' else None,answer_backend=answer_backend,
+                                     frontend_mode=frontend_mode,reranker=reranker,rerank_cache_dir=rerank_cache_dir,
+                                     rerank_cache_only=rerank_cache_only)
+                    cached_rerank=bool((row.get('semantic_rerank') or {}).get('cache_reused'))
+                    row['benchmark']={**meter.result(),'independent_request':not cached_rerank,
+                        'rerank_cache_reused':cached_rerank,'corpus_state':'preloaded',
                         'frontend_mode':'live' if frontend_backend and arm!='P0' else 'supplied_or_none',
                         'has_answer_call':answer_backend is not None,'repeat':repeat}
                     row.update(question_id=q['question_id'],owner_id=q['owner_id'])
@@ -154,7 +181,8 @@ def benchmark(index, questions, tokenizer, *, config, arms, corpus, repeats=1,
             journal.update(status='failed',error_type=type(error).__name__,completed_runs=len(rows),
                 calls={'frontend':list(frontend_backend.calls) if frontend_backend else [],
                        'exploration':list(exploration_backend.calls) if exploration_backend else [],
-                       'answer':list(answer_backend.calls) if answer_backend else []})
+                       'answer':list(answer_backend.calls) if answer_backend else [],
+                       'rerank':list(reranker.calls) if reranker else []})
             write_json(journal_path,journal)
         raise
     if journal_path:
@@ -163,12 +191,28 @@ def benchmark(index, questions, tokenizer, *, config, arms, corpus, repeats=1,
 
 
 def replay(run,index,corpus):
-    from .scheduler import Scheduler, ARMS
-    require(run['arm'] in ARMS and run['index_hash']==index.index_hash and
+    from .scheduler import Scheduler, ARMS, build_interaction_matrix
+    from .cascade import CASCADE_ARMS, select_cascade
+    require(run['arm'] in ARMS + CASCADE_ARMS and run['index_hash']==index.index_hash and
             run['manifest']['runtime_source_hash']==runtime_source_hash(),'Replay code/index mismatch')
     cfg=Config.from_dict(run['manifest']['config']);rel=run['relevance']
-    packet=Scheduler(corpus,run['candidates'],rel['whole_query'],[g['scores'] for g in rel['cue_groups']],cfg).select(
-        run['arm'],any(g['seed_tags'] for g in run['query']['groups']))
+    if run['arm'] == 'P4_active':
+        expected = (build_interaction_matrix(index, run['query'], cfg.interaction_top_edges)
+                    if any(g['seed_tags'] for g in run['query']['groups']) else [])
+        require(rel.get('interaction_matrix') == expected == run['evidence_pack'].get('interaction_matrix'),
+                'Replay mismatch: interaction matrix')
+    if run['arm'] in CASCADE_ARMS:
+        from .rerank import rerank_documents
+        sem=run['semantic_rerank'];request=sem['request']
+        require(sem['record_hash']==digest({k:sem[k] for k in ('request','scores','calls')}) and
+                sem['scores']==rel['whole_query'] and request['question']==run['question'] and
+                request['corpus_hash']==corpus.identity and request['atom_ids']==sorted(run['candidates']['atom_ids']) and
+                request['documents_hash']==digest(rerank_documents(corpus,request['atom_ids'])), 'Replay semantic input/score mismatch')
+        packet=select_cascade(corpus,run['candidates'],rel['whole_query'],cfg,run['arm'],any(g['seed_tags'] for g in run['query']['groups']))
+    else:
+        packet=Scheduler(corpus,run['candidates'],rel['whole_query'],[g['scores'] for g in rel['cue_groups']],cfg,
+                         interaction_matrix=rel.get('interaction_matrix', [])).select(
+            run['arm'],any(g['seed_tags'] for g in run['query']['groups']))
     for field in ('text_hash','atom_ids','used_tokens','ledger','alternatives','coverage'):
         require(packet[field]==run['evidence_pack'][field], 'Replay mismatch: '+field)
     return {'verified':True,'arm':run['arm'],'packet_hash':packet['text_hash'],'decisions':len(packet['ledger'])}

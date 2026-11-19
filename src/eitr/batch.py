@@ -8,7 +8,8 @@ from .evidence import Corpus
 
 
 def run_batch(index, questions, tokenizer, *, config, arms, frontend_backend=None, answer_backend=None, output_dir,
-              corpus=None, native_runtime=None, exploration_backend=None):
+              corpus=None, native_runtime=None, exploration_backend=None, frontend_mode="literal",
+              reranker=None, rerank_cache_dir=None, rerank_cache_only=False):
     require(isinstance(questions, list) and questions, "Questions must be a nonempty list")
     require(arms and len(set(arms)) == len(arms) and set(arms) <= set(RUN_ARMS)
             and config.top_k == index.top_k, "Invalid batch arms/config")
@@ -35,7 +36,8 @@ def run_batch(index, questions, tokenizer, *, config, arms, frontend_backend=Non
     out.mkdir(parents=True)
     manifest = {"schema": "eitr-batch-1", "status": "running", "index_hash": index.index_hash,
                 "questions_hash": digest(questions), "config": config.to_dict(), "arms": list(arms),
-                "tokenizer": tokenizer.identity, "completed": [],
+                "tokenizer": tokenizer.identity, "completed": [], "frontend_mode": frontend_mode,
+                "reranker": reranker.identity if reranker else None,
                 "corpus_hash":corpus.identity, "corpus_cache_hash":corpus.cache_hash,
                 "corpus_build_seconds":corpus.build_seconds, "corpus_load_seconds":corpus.load_seconds,
                 "answer_reuse_policy": "same question + identical rendered packet; independent deployment usage retained"}
@@ -46,7 +48,8 @@ def run_batch(index, questions, tokenizer, *, config, arms, frontend_backend=Non
         try:
             result = compare(index, q["question"], tokenizer, config=config, arms=arms,
                              mentions=q.get("mentions"), frontend_backend=frontend_backend, corpus=corpus,
-                             native_runtime=native_runtime, exploration_backend=exploration_backend)
+                             native_runtime=native_runtime, exploration_backend=exploration_backend, frontend_mode=frontend_mode,
+                             reranker=reranker, rerank_cache_dir=rerank_cache_dir, rerank_cache_only=rerank_cache_only)
             result.update(question_id=qid, owner_id=q["owner_id"], status="answering" if answer_backend else "retrieval_complete")
             write_json(out / filename, result)
             answers = {}
@@ -77,7 +80,8 @@ def run_batch(index, questions, tokenizer, *, config, arms, frontend_backend=Non
             manifest["failure_call_traces"] = {
                 "frontend": list(frontend_backend.calls) if frontend_backend else [],
                 "exploration": list(exploration_backend.calls) if exploration_backend else [],
-                "answer": list(answer_backend.calls) if answer_backend else []}
+                "answer": list(answer_backend.calls) if answer_backend else [],
+                "rerank": list(reranker.calls) if reranker else []}
             write_json(out / "manifest.json", manifest)
             raise
     manifest["status"] = "complete"

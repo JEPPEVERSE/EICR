@@ -18,6 +18,8 @@
   "reference_tokens": 128,
   "eta": 0.5,
   "support_floor": 0.1,
+  "interaction_weight": 0.15,
+  "interaction_top_edges": 3,
   "evidence_budget": 6000,
   "direct_fraction": 0.3333333333333333,
   "seed_fraction": 0.16666666666666666,

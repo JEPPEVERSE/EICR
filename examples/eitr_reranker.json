@@ -1,0 +1,9 @@
+{
+  "provider": "dashscope",
+  "endpoint": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
+  "model": "gte-rerank-v2",
+  "key_env": "QWEN_API_KEY",
+  "max_documents": 500,
+  "cache_dir": "/absolute/path/to/rerank-cache",
+  "cache_only": false
+}
