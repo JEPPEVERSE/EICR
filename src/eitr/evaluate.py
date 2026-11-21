@@ -70,6 +70,13 @@ def diagnose(run, gold_source_ids, index):
     result = source_metrics(run, gold)
     result['stage_source_recall'] = {k:len(gold & set(v))/len(gold) if gold else None for k,v in stages.items()}
     result['losses'] = {}
+    if run.get('schema') == 'eitr-matrix-run-1':
+        for sid in gold-packet:
+            result['losses'][sid] = ('packet_budget_or_selection' if sid in stages.get('candidate',[]) else
+                'global_candidate_cap' if sid in stages.get('before_global_cap',[]) else 'fact_matching_or_routing_miss')
+        result['source_visibility_is_answer_sufficiency'] = False
+        result['frontend_status'] = run['query']['plan']['status']
+        return result
     if run['arm'] == 'P5':
         for sid in gold-packet:
             result['losses'][sid] = 'packet_budget_or_selection' if sid in stages.get('candidate',[]) else 'native_exploration_not_retrieved'
@@ -258,7 +265,9 @@ def grade_batch(batch_dir, labels, index, backend, output_dir, *, judge_profile=
         require(item.get('content_hash')==digest(result),'Batch run content changed after completion')
         require(result['question_id']==item['question_id'] and result['index_hash']==index.index_hash,'Invalid grading run identity')
         for run in result['rows']:
-            require(isinstance(run.get('answer'),dict) and isinstance(run['answer'].get('answer_text'),str), 'All runs must have answers before grading')
+            answer_present = isinstance(run.get('answer'),dict) and isinstance(run['answer'].get('answer_text'),str)
+            recorded_failure = run.get('schema') == 'eitr-matrix-run-1' and bool(run.get('answer_error'))
+            require(answer_present or recorded_failure, 'All runs must have answers or recorded matrix generation failures before grading')
         cases.append(result)
     out=Path(output_dir);require(not out.exists(),'Grading output exists');out.mkdir(parents=True)
     rows=[]; verdicts={}; start=len(backend.calls)
@@ -269,10 +278,14 @@ def grade_batch(batch_dir, labels, index, backend, output_dir, *, judge_profile=
         for case in cases:
             qid=case['question_id']; label=by_id[qid]
             for run in case['rows']:
-                prediction=run['answer']['answer_text']; key=digest([profile['profile_hash'],qid,case['question'],label['references'],prediction])
+                candidate = run.get('answer') or run.get('raw_answer')
+                prediction = candidate.get('answer_text') if isinstance(candidate, dict) else None
+                generation_failed = not isinstance(prediction, str)
+                key=digest([profile['profile_hash'],qid,case['question'],label['references'],prediction])
                 reused=key in verdicts
                 if not reused:
-                    verdict=_judge_answer(backend,judge_profile,case['question'],label['references'],prediction)
+                    verdict=({'correct':False, 'reason':'No answer text: recorded generation failure'} if generation_failed else
+                             _judge_answer(backend,judge_profile,case['question'],label['references'],prediction))
                     verdicts[key]=verdict
                 verdict=verdicts[key]
                 ledger=cost_ledger(run)

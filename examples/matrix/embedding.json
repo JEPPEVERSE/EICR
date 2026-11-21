@@ -1,0 +1,12 @@
+{
+  "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings",
+  "model": "text-embedding-v4",
+  "revision": "hosted-alias-record-vectors-before-experiments",
+  "key_env": "QWEN_API_KEY",
+  "dimension": 1024,
+  "query_prefix": "",
+  "document_prefix": "",
+  "batch_size": 10,
+  "cache_dir": "/absolute/path/to/matrix-embedding-cache",
+  "cache_only": false
+}

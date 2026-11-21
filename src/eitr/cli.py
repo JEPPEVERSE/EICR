@@ -32,6 +32,8 @@ def model_args(p):
 
 def parser():
     cli=argparse.ArgumentParser(prog='eitr');sub=cli.add_subparsers(dest='command',required=True)
+    from .matrix_cli import add_parsers
+    add_parsers(sub)
     imp=sub.add_parser('import-mragent')
     for name in ('pack','manifest','out'): imp.add_argument('--'+name,required=True)
     canon=sub.add_parser('canonicalize')
@@ -75,6 +77,9 @@ def main(argv=None):
     try:
         if getattr(args,'out',None):require(not Path(args.out).exists(),'Output exists; choose a new path')
         cmd=args.command
+        if cmd.startswith('matrix-'):
+            from .matrix_cli import run
+            return run(args)
         offline_meter=Meter()
         if cmd=='import-mragent':result=import_pack(read_json(args.pack),read_json(args.manifest))
         elif cmd=='canonicalize':result=canonicalize(read_json(args.snapshot))

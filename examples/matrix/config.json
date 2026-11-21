@@ -1,0 +1,15 @@
+{
+  "atom_tokens": 128,
+  "context_each_side": 1,
+  "evidence_budget": 2000,
+  "max_requirements": 8,
+  "tags_per_requirement": 8,
+  "facts_per_tag": 16,
+  "direct_facts": 32,
+  "max_core_atoms": 200,
+  "max_candidate_atoms": 480,
+  "graph_hops": 1,
+  "graph_tags_per_requirement": 8,
+  "max_actions": 128,
+  "max_score_evaluations": 100000
+}

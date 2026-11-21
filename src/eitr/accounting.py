@@ -47,13 +47,17 @@ def cost_ledger(run, prices=None):
     if prices is not None:
         require(set(prices)=={'input_per_million','output_per_million'} and
                 all(type(v) in (float,int) and math.isfinite(v) and v>=0 for v in prices.values()), 'Invalid price table')
-        if total['usage_complete'] and not any(c.get('billing_kind') == 'rerank_tokens' for calls in run['calls'].values() for c in calls):
+        if total['usage_complete'] and not any(c.get('billing_kind') in ('rerank_tokens','embedding_tokens') for calls in run['calls'].values() for c in calls):
             total['usd']=(total['known_input_tokens']*prices['input_per_million']+
                           total['known_output_tokens']*prices['output_per_million'])/1e6
-    return {'stages':stages,'independent_deployment':total,
+    billing = {}
+    for calls in run['calls'].values():
+        for c in calls: billing.setdefault(c.get('billing_kind','chat_tokens'), []).append(c)
+    return {'stages':stages,'by_billing_kind':{k:usage(v) for k,v in billing.items()},'independent_deployment':total,
             'experimental_answer_reused':run.get('answer_reused_in_experiment',False),
             'unpriced_rerank':any(c.get('billing_kind') == 'rerank_tokens' for calls in run['calls'].values() for c in calls),
-            'note':'Reused traces retain deployment cost. A chat-model price must not be applied to reranking tokens; USD is unknown until priced separately.'}
+            'unpriced_embeddings':any(c.get('billing_kind') == 'embedding_tokens' for calls in run['calls'].values() for c in calls),
+            'note':'Token totals mix billing units; inspect by_billing_kind for comparisons. Reused traces retain deployment cost. A chat-model price must not be applied to reranking or embedding tokens; USD is unknown until priced separately.'}
 
 
 def percentile(values,p):

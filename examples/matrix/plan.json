@@ -1,0 +1,10 @@
+{
+  "requirements": [
+    {"text": "What animal does Nate like?", "anchors": ["Nate", "animal", "like"]},
+    {"text": "What animal does Joanna like?", "anchors": ["Joanna", "animal", "like"]}
+  ],
+  "operator": "intersection",
+  "operator_anchor": "both",
+  "subjects": ["Nate", "Joanna"],
+  "constraints": [{"kind": "relation", "quote": "like"}]
+}

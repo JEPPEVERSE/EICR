@@ -1,0 +1,8 @@
+{
+  "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "model": "REPLACE_WITH_YOUR_CHAT_MODEL",
+  "key_env": "QWEN_API_KEY",
+  "max_output_tokens": 2048,
+  "enable_thinking": false,
+  "json_mode": true
+}

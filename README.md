@@ -1,6 +1,14 @@
 # EICR
 
-**2026-11-19：当前研究主线已转向 EITR 图记忆低成本检索，版本 0.2.0。** `src/eitr/` 实现下游 cue 分布、tag 关联图、动态覆盖调度、P0–P5、离线原文索引、协议冻结、回放和独立评分。P5 加载校验过的 MRAgent 实际工具循环；原生 M0 不混入受控消融。使用 `eitr` 命令，详见 [运行说明](docs/eitr_implementation_v2.md)和[完整性验收](docs/eitr_completion_audit_20261119.md)。下文与 `eicr` 命令保留旧入口扰动研究，两个索引格式不可混用。
+**2026-11-21：当前主线升级为 v0.3.0「问题条件下的 tag 矩阵检索＋成熟重排器」。** 使用 `eitr matrix-*`：一次问题需求解析 → 下游事实多行矩阵匹配 → 固定预算候选 → 原文重排、装包和回答。tag 图是可选消融；当前主线不再使用委员会和入口重要性动态配额。包括 live embedding 接口、协议冻结、批量实验、完整回放和隔离评分。详见[数学与运行说明](docs/matrix_v3_implementation_20261121.md)、[实现验收报告](docs/matrix_v3_completion_20261121.md)。
+
+```bash
+python examples/matrix/offline_smoke.py --out /tmp/new-matrix-smoke
+```
+
+上面是无 API 的合成链路检查，不是效果实验。真实服务配置模板位于 `examples/matrix/`。**下面的 P*/C* 和 eicr 内容均为历史版本，保留复现，不代表 v3 主线。**
+
+**历史 v2（2026-11-19）：研究主线曾转向 EITR 图记忆低成本检索，版本 0.2.0。** `src/eitr/` 实现下游 cue 分布、tag 关联图、动态覆盖调度、P0–P5、离线原文索引、协议冻结、回放和独立评分。P5 加载校验过的 MRAgent 实际工具循环；原生 M0 不混入受控消融。使用 `eitr` 命令，详见 [运行说明](docs/eitr_implementation_v2.md)和[完整性验收](docs/eitr_completion_audit_20261119.md)。下文与 `eicr` 命令保留旧入口扰动研究，两个索引格式不可混用。
 
 **2026-11-19 级联检索适配：** 新增专用语义 reranker、同候选池 MMR 对照、独立 PPR 候选臂、MRAgent 风格关键词→静态 tag 前端，以及严格/上游宽松双评分口径。旧 P0–P5 保留；使用方式与真实验证见 [级联实现报告](docs/eitr_cascade_report_20261119.md)。
 
