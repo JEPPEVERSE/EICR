@@ -83,6 +83,10 @@ class ChatBackend:
             trace["usage"] = {name: value for name, value in usage.items()
                               if name in ("prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens")
                               and type(value) is int and value >= 0} if isinstance(usage, dict) else {}
+            if isinstance(usage,dict):
+                details=usage.get('prompt_tokens_details',usage.get('input_tokens_details'))
+                cached=details.get('cached_tokens') if isinstance(details,dict) else None
+                if type(cached) is int and cached>=0: trace['usage']['cached_input_tokens']=cached
             choices = result.get("choices")
             require(isinstance(choices, list) and choices and isinstance(choices[0], dict), "Provider choices are invalid")
             choice = choices[0]

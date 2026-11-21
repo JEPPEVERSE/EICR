@@ -10,7 +10,7 @@ from eicr.contracts import read_json, write_json, tokens, require
 from eicr.packer import CharacterTokenizer
 from eitr.native import canonicalize
 from eitr.evidence import Corpus
-from eitr.matrix_index import build_index, embed_snapshot
+from eitr.matrix_index import build_index, embed_snapshot, compare_graphs
 from eitr.matrix_pipeline import prepare_query, retrieve, replay
 from eitr.matrix_retrieval import MatrixConfig, ARMS
 
@@ -43,7 +43,9 @@ def main():
     out=Path(args.out);require(not out.exists(),'Choose a new output directory');out.mkdir(parents=True)
     raw=read_json(Path(__file__).resolve().parents[1]/'eitr'/'raw_snapshot.json')
     snapshot=canonicalize(raw);eb=SyntheticEmbedding()
-    index=build_index(snapshot,embed_snapshot(snapshot,eb),graph_top_k=2,graph_shortlist=4)
+    index=build_index(snapshot,embed_snapshot(snapshot,eb),graph_top_k=2,graph_shortlist=4,graph_mode='exact')
+    approximate=build_index(snapshot,index.embedding,graph_top_k=2,graph_shortlist=4,graph_mode='shortlist')
+    write_json(out/'graph-comparison.json',compare_graphs(index,approximate))
     index.save(out/'index.json');cfg=MatrixConfig(evidence_budget=1200)
     corpus=Corpus(snapshot,CharacterTokenizer(),cfg);corpus.save(out/'corpus.json')
     question='Which herbs did I use for the halloumi salad?'

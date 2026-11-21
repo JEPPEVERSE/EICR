@@ -43,21 +43,19 @@ def usage(calls):
 def cost_ledger(run, prices=None):
     stages={k:usage(v) for k,v in run['calls'].items()}
     total=usage([c for values in run['calls'].values() for c in values])
-    total['usd']=None
-    if prices is not None:
-        require(set(prices)=={'input_per_million','output_per_million'} and
-                all(type(v) in (float,int) and math.isfinite(v) and v>=0 for v in prices.values()), 'Invalid price table')
-        if total['usage_complete'] and not any(c.get('billing_kind') in ('rerank_tokens','embedding_tokens') for calls in run['calls'].values() for c in calls):
-            total['usd']=(total['known_input_tokens']*prices['input_per_million']+
-                          total['known_output_tokens']*prices['output_per_million'])/1e6
+    from .pricing import price_calls
+    priced=price_calls([c for values in run['calls'].values() for c in values],prices)
+    total['usd']=priced['usd'] if prices is not None else None
+    for stage,calls in run['calls'].items():
+        stages[stage]['usd']=price_calls(calls,prices)['usd'] if prices is not None else None
     billing = {}
     for calls in run['calls'].values():
         for c in calls: billing.setdefault(c.get('billing_kind','chat_tokens'), []).append(c)
-    return {'stages':stages,'by_billing_kind':{k:usage(v) for k,v in billing.items()},'independent_deployment':total,
+    return {'stages':stages,'pricing':priced,'by_billing_kind':{k:usage(v) for k,v in billing.items()},'independent_deployment':total,
             'experimental_answer_reused':run.get('answer_reused_in_experiment',False),
-            'unpriced_rerank':any(c.get('billing_kind') == 'rerank_tokens' for calls in run['calls'].values() for c in calls),
-            'unpriced_embeddings':any(c.get('billing_kind') == 'embedding_tokens' for calls in run['calls'].values() for c in calls),
-            'note':'Token totals mix billing units; inspect by_billing_kind for comparisons. Reused traces retain deployment cost. A chat-model price must not be applied to reranking or embedding tokens; USD is unknown until priced separately.'}
+            'unpriced_rerank':any(c['billing_kind']=='rerank_tokens' and c['usd'] is None for c in priced['calls']),
+            'unpriced_embeddings':any(c['billing_kind']=='embedding_tokens' and c['usd'] is None for c in priced['calls']),
+            'note':'Token totals mix billing units; inspect by_billing_kind for comparisons. Reused traces retain deployment cost. Service prices match billing_kind/model/endpoint; legacy chat prices never apply to embedding/rerank. Missing rates or usage leave USD unknown.'}
 
 
 def percentile(values,p):
@@ -78,6 +76,7 @@ def break_even(added_build_cost, baseline_query_cost, method_query_cost):
 def cost_report(runs, prices=None, offline=None):
     grouped={}
     for run in runs:
+        if run.get('benchmark',{}).get('warmup'): continue
         grouped.setdefault(run['arm'],[]).append(run)
     report={}
     for arm, rows in grouped.items():
@@ -92,9 +91,12 @@ def cost_report(runs, prices=None, offline=None):
         # Never turn shared-setup replay fragments into end-to-end latency.
         measured=[r for r in rows if r.get('benchmark',{}).get('independent_request')
                   and not r.get('benchmark',{}).get('rerank_cache_reused')
+                  and not r.get('benchmark',{}).get('frontend_cache_reused')
+                  and not r.get('benchmark',{}).get('embedding_cache_reused')
                   and not (r.get('semantic_rerank') or {}).get('cache_reused')]
-        durations=[r['benchmark']['wall_seconds'] for r in measured if r['benchmark'].get('has_answer_call')]
-        retrieval=[r['timing_seconds']['retrieval_total'] for r in rows if r.get('benchmark',{}).get('independent_request')]
+        durations=[r['benchmark']['wall_seconds'] for r in measured if r['benchmark'].get('has_answer_call') and not r.get('answer_error') and
+                   r.get('manifest',{}).get('status') not in ('execution_failed','answer_failed')]
+        retrieval=[r['timing_seconds']['retrieval_total'] for r in measured if 'retrieval_total' in r.get('timing_seconds',{})]
         complete=all(l['usage_complete'] for l in ledgers)
         report[arm]={'runs':len(rows),'by_billing_kind':kind_summary,'mean_online_tokens':mean(l['total_tokens'] for l in ledgers) if complete else None,
             'mean_usd':mean(l['usd'] for l in ledgers) if all(l['usd'] is not None for l in ledgers) else None,
@@ -104,6 +106,7 @@ def cost_report(runs, prices=None, offline=None):
                 r.get('query',{}).get('plan',{}).get('fallback_reason') in ('frontend_unavailable','invalid_plan') for r in rows),
             'answer_error_runs':sum(bool(r.get('answer_error')) for r in rows),
             'total_calls':sum(l['calls'] for l in ledgers),'failed_calls':sum(l['failed_calls'] for l in ledgers),
+            'failed_execution_runs':sum(r.get('manifest',{}).get('status')=='execution_failed' for r in rows),
             'independent_latency_runs':len(measured),'end_to_end_latency_runs':len(durations),
             'frontend_modes':sorted({r['benchmark']['frontend_mode'] for r in measured}),
             'live_frontend_included':all(r['benchmark']['frontend_mode']=='live' or arm=='P0' for r in measured) if measured else None,

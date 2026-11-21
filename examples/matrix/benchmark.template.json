@@ -1,0 +1,77 @@
+{
+  "experiment": {
+    "config": {
+      "atom_tokens": 128,
+      "context_each_side": 1,
+      "evidence_budget": 2000,
+      "max_requirements": 8,
+      "tags_per_requirement": 8,
+      "facts_per_tag": 16,
+      "direct_facts": 32,
+      "max_core_atoms": 200,
+      "max_candidate_atoms": 480,
+      "graph_hops": 1,
+      "graph_tags_per_requirement": 8,
+      "max_actions": 128,
+      "max_score_evaluations": 100000
+    },
+    "arms": [
+      "direct_rerank",
+      "matrix_rerank",
+      "matrix_graph_rerank"
+    ],
+    "tokenizer": {
+      "kind": "json",
+      "path": "/absolute/path/to/tokenizer.json",
+      "sha256": "REPLACE_WITH_VERIFIED_SHA256"
+    },
+    "assets": [
+      {
+        "index": "/absolute/path/to/matrix-index.json",
+        "corpus": "/absolute/path/to/corpus.json"
+      }
+    ],
+    "questions": "/absolute/path/to/unlabeled-questions.json",
+    "embedding": {
+      "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings",
+      "model": "text-embedding-v4",
+      "revision": "hosted-alias-record-vectors-before-experiments",
+      "key_env": "QWEN_API_KEY",
+      "dimension": 1024,
+      "query_prefix": "",
+      "document_prefix": "",
+      "batch_size": 10,
+      "cache_dir": "/absolute/path/to/matrix-embedding-cache",
+      "cache_only": false
+    },
+    "frontend": "llm",
+    "model": {
+      "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "REPLACE_WITH_YOUR_CHAT_MODEL",
+      "key_env": "QWEN_API_KEY",
+      "max_output_tokens": 2048,
+      "enable_thinking": false,
+      "json_mode": true
+    },
+    "plan_cache_dir": "/absolute/path/to/matrix-plan-cache",
+    "plan_cache_only": false,
+    "reranker": {
+      "provider": "dashscope",
+      "endpoint": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
+      "model": "gte-rerank-v2",
+      "key_env": "QWEN_API_KEY",
+      "max_documents": 500,
+      "cache_dir": "/absolute/path/to/rerank-cache",
+      "cache_only": false
+    },
+    "generate": true
+  },
+  "settings": {
+    "repeats": 3,
+    "warmup_repeats": 1,
+    "seed": 20261121,
+    "cache_policy": "bypass",
+    "load_mode": "warm"
+  },
+  "prices": null
+}

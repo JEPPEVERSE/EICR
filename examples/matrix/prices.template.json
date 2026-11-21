@@ -1,0 +1,32 @@
+{
+  "schema": "eitr-prices-1",
+  "currency": "USD",
+  "as_of": "REPLACE_WITH_PRICE_DATE",
+  "source": "REPLACE_WITH_OFFICIAL_RATE_SOURCE_AND_FX_IF_NEEDED",
+  "rates": [
+    {
+      "billing_kind": "chat_tokens",
+      "model": "REPLACE_WITH_YOUR_CHAT_MODEL",
+      "endpoint_hash": "8b2745bf62ffc25c22839cae7ccd329991f2d07fcd4fd9e86858f97809f05c05",
+      "input_per_million": null,
+      "output_per_million": null,
+      "cached_input_per_million": null
+    },
+    {
+      "billing_kind": "embedding_tokens",
+      "model": "text-embedding-v4",
+      "endpoint_hash": "7fef6a86bd5916aa25086a587f4a6412100950fd3022157bebe5d7a5288c86f4",
+      "input_per_million": null,
+      "output_per_million": null,
+      "cached_input_per_million": null
+    },
+    {
+      "billing_kind": "rerank_tokens",
+      "model": "gte-rerank-v2",
+      "endpoint_hash": "2040273f5404adf785b402e4bad6d808b0d879d1c0f29117b744de2c0c504d82",
+      "input_per_million": null,
+      "output_per_million": null,
+      "cached_input_per_million": null
+    }
+  ]
+}

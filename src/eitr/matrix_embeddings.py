@@ -45,7 +45,7 @@ class EmbeddingBackend:
         key = os.environ.get(self.spec['key_env'])
         require(key, 'Missing embedding credential variable: '+self.spec['key_env'])
         payload = {'model':self.spec['model'], 'input':[self.spec[role+'_prefix']+t for t in texts], 'encoding_format':'float', 'dimensions':self.spec['dimension']}
-        trace = {'model':self.spec['model'], 'billing_kind':'embedding_tokens', 'status':'started', 'request_hash':digest(payload)}
+        trace = {'model':self.spec['model'], 'endpoint_hash':self.identity['endpoint_hash'], 'billing_kind':'embedding_tokens', 'status':'started', 'request_hash':digest(payload)}
         self.calls.append(trace); tick = perf_counter()
         try:
             req = urllib.request.Request(self.spec['endpoint'], data=json.dumps(payload).encode(),
@@ -75,27 +75,47 @@ class EmbeddingBackend:
         finally: trace['seconds']=perf_counter()-tick
 
 
-def embed_record(texts, role, scope, backend, *, cache_dir=None, cache_only=None, batch_size=None):
+def embed_record(texts, role, scope, backend, *, cache_dir=None, cache_only=None, batch_size=None, cache_bypass=False):
     defaults = getattr(backend, 'spec', {})
     cache_dir = cache_dir if cache_dir is not None else defaults.get('cache_dir')
     cache_only = cache_only if cache_only is not None else defaults.get('cache_only', False)
     batch_size = batch_size if batch_size is not None else defaults.get('batch_size', 64)
-    require(type(cache_only) is bool, 'Invalid embedding cache mode')
+    require(type(cache_only) is bool and type(cache_bypass) is bool and not (cache_only and cache_bypass), 'Invalid embedding cache mode')
     require(role in ('query','document') and isinstance(texts,list) and texts and
             all(isinstance(t,str) and t.strip() for t in texts), 'Invalid embedding input')
     require(type(batch_size) is int and 0 < batch_size <= 256, 'Invalid embedding batch size')
     request = {'schema':'eitr-matrix-embedding-request-1', 'backend':backend.identity,
                'role':role, 'scope':scope, 'texts_hash':digest(texts), 'count':len(texts)}
-    path = Path(cache_dir)/(digest(request)+'.json') if cache_dir else None
+    path = Path(cache_dir)/(digest(request)+'.json') if cache_dir and not cache_bypass else None
     if path and path.exists():
         record = read_json(path); validate_record(record,request)
         return record
-    require(not cache_only, 'Required embedding cache missing')
-    vectors=[]; start=len(backend.calls)
+    vectors=[]; calls=[]
+    # Persist completed batches immediately. A later provider failure must not
+    # force a paid full-corpus re-embedding. Part scopes pin parent/order/offset.
     for offset in range(0,len(texts),batch_size):
         part=texts[offset:offset+batch_size]
-        vectors.extend(unit_rows(backend.embed(part,role),len(part),backend.identity['dimension']).tolist())
-    record={'request':request,'vectors':vectors,'calls':list(backend.calls[start:])}
+        prequest={**request,'scope':{'parent_request_hash':digest(request),'offset':offset},
+                  'texts_hash':digest(part),'count':len(part)}
+        ppath=Path(cache_dir)/'parts'/(digest(prequest)+'.json') if cache_dir and not cache_bypass else None
+        if ppath and ppath.exists():
+            piece=read_json(ppath);validate_record(piece,prequest)
+        else:
+            require(not cache_only,'Required embedding cache missing')
+            start=len(backend.calls)
+            try:
+                part_vectors=unit_rows(backend.embed(part,role),len(part),backend.identity['dimension']).tolist()
+            except Exception as error:
+                if ppath:
+                    from uuid import uuid4
+                    failure={'request':prequest,'calls':list(backend.calls[start:]),'error_type':type(error).__name__}
+                    write_json(Path(cache_dir)/'failures'/(uuid4().hex+'.json'),failure)
+                raise
+            piece={'request':prequest,'vectors':part_vectors,'calls':list(backend.calls[start:])}
+            piece['record_hash']=digest(piece)
+            if ppath:write_json(ppath,piece)
+        vectors.extend(piece['vectors']);calls.extend(piece['calls'])
+    record={'request':request,'vectors':vectors,'calls':calls}
     record['record_hash']=digest(record)
     validate_record(record,request)
     if path: write_json(path,record)

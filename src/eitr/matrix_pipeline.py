@@ -19,12 +19,14 @@ def query_embedding_request(index,question,plan):
 
 
 def prepare_query(index,question,embedding_backend, *, frontend_backend=None,supplied_plan=None,
-                  plan_cache_dir=None,plan_cache_only=False,embedding_options=None,config=MatrixConfig()):
+                  plan_cache_dir=None,plan_cache_only=False,embedding_options=None,config=MatrixConfig(),progress=None):
     require(embedding_backend.identity==index.embedding['request']['backend'],'Document/query encoder identity mismatch')
     plan=plan_record(question,backend=frontend_backend,supplied=supplied_plan,cache_dir=plan_cache_dir,
                      cache_only=plan_cache_only,max_requirements=config.max_requirements)
+    if progress is not None: progress['plan']=plan
     texts,scope,_=query_embedding_request(index,question,plan['plan'])
     emb=embed_record(texts,'query',scope,embedding_backend,**(embedding_options or {}))
+    if progress is not None: progress['embedding']=emb
     return {'plan':plan,'embedding':emb}
 
 
@@ -87,10 +89,14 @@ def retrieve(index,question,corpus,prepared, *, config=MatrixConfig(),arm='matri
 
 
 def replay(index,corpus,run):
-    require(run.get('schema')=='eitr-matrix-run-1' and run.get('run_hash')==digest(
+    require(run.get('schema') in ('eitr-matrix-run-1','eitr-matrix-failure-1') and run.get('run_hash')==digest(
             {k:v for k,v in run.items() if k!='run_hash'}),'Run hash/schema mismatch')
     require(run['index_hash']==index.index_hash and run['manifest']['runtime_source_hash']==runtime_source_hash(),
             'Replay index/code mismatch')
+    if run['schema']=='eitr-matrix-failure-1':
+        return {'schema':'eitr-matrix-replay-1','verified':True,'run_hash':run['run_hash'],
+                'execution_succeeded':False,'reconstructed':[], 'failure_stage':run['failure_stage'],
+                'note':'Only failure receipt integrity checked; failed retrieval cannot be reconstructed.'}
     result=retrieve(index,run['question'],corpus,run['prepared_query'],config=MatrixConfig.from_dict(run['manifest']['config']),
                     arm=run['arm'],semantic_record=run['semantic_rerank'])
     for key in ('matching','candidates','relevance','evidence_pack'):

@@ -70,6 +70,10 @@ def diagnose(run, gold_source_ids, index):
     result = source_metrics(run, gold)
     result['stage_source_recall'] = {k:len(gold & set(v))/len(gold) if gold else None for k,v in stages.items()}
     result['losses'] = {}
+    if run.get('schema')=='eitr-matrix-failure-1':
+        result['losses']={sid:'execution_failed:'+run['failure_stage'] for sid in gold}
+        result['source_visibility_is_answer_sufficiency']=False
+        return result
     if run.get('schema') == 'eitr-matrix-run-1':
         for sid in gold-packet:
             result['losses'][sid] = ('packet_budget_or_selection' if sid in stages.get('candidate',[]) else
@@ -269,12 +273,12 @@ def grade_batch(batch_dir, labels, index, backend, output_dir, *, judge_profile=
         if manifest.get('schema')=='eitr-matrix-batch-1':
             require([r.get('arm') for r in result['rows']]==manifest['arms'], 'Incomplete/duplicate matrix arms')
         for run in result['rows']:
-            if run.get('schema')=='eitr-matrix-run-1':
+            if run.get('schema') in ('eitr-matrix-run-1','eitr-matrix-failure-1'):
                 require(run.get('run_hash')==digest({k:v for k,v in run.items() if k!='run_hash'}) and
                         run['question']==result['question'] and run['index_hash']==index.index_hash and
                         run['snapshot_hash']==index.snapshot['content_hash'], 'Matrix grading run scope/hash mismatch')
             answer_present = isinstance(run.get('answer'),dict) and isinstance(run['answer'].get('answer_text'),str)
-            recorded_failure = run.get('schema') == 'eitr-matrix-run-1' and bool(run.get('answer_error'))
+            recorded_failure = run.get('schema') in ('eitr-matrix-run-1','eitr-matrix-failure-1') and bool(run.get('answer_error'))
             require(answer_present or recorded_failure, 'All runs must have answers or recorded matrix generation failures before grading')
         cases.append(result)
     out=Path(output_dir);require(not out.exists(),'Grading output exists');out.mkdir(parents=True)

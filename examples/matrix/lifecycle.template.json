@@ -1,0 +1,18 @@
+{
+  "comparisons": [
+    {
+      "owner_id": "REPLACE_OWNER",
+      "snapshot_id": "REPLACE_SNAPSHOT",
+      "baseline_arm": "direct_rerank",
+      "method_arm": "matrix_graph_rerank",
+      "baseline_builds": [
+        "/absolute/path/to/no-graph-index.json.metrics.json"
+      ],
+      "method_builds": [
+        "/absolute/path/to/exact-index.json.metrics.json"
+      ],
+      "queries_per_snapshot": 1000,
+      "compute_usd_per_cpu_hour": null
+    }
+  ]
+}

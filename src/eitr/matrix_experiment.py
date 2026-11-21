@@ -17,7 +17,7 @@ from .matrix_embeddings import validate_record
 from .matrix_retrieval import candidates
 
 
-def freeze(spec):
+def freeze(spec, *, inspect_caches=True):
     require(isinstance(spec,dict) and set(spec)=={'config','arms','tokenizer','assets','questions','embedding',
             'frontend','model','plan_cache_dir','plan_cache_only','reranker','generate'}, 'Pin complete matrix protocol')
     cfg=MatrixConfig.from_dict(spec['config']); arms=spec['arms']
@@ -64,7 +64,7 @@ def freeze(spec):
     # Read-only dependency closure: pin caches used at freeze time. Required
     # caches must exist before any experiment output or paid calls are created.
     frontend=model_backend(spec['model']) if spec['frontend']=='llm' else None
-    for q in questions:
+    for q in (questions if inspect_caches else []):
         key=(q['owner_id'],q['snapshot_id']); index=indexes[key]; question=q['question']
         request=plan_request(question,frontend,q.get('plan'),cfg.max_requirements)
         path=Path(spec['plan_cache_dir'])/(digest(request)+'.json')
@@ -104,7 +104,7 @@ def freeze(spec):
                 else:
                     require(not spec['reranker']['cache_only'] or not ids,'Required rerank cache missing at preflight')
     if spec['tokenizer']['kind']=='json': pin(spec['tokenizer']['path'])
-    body={'schema':'eitr-matrix-protocol-1','spec':spec,'files':files,'runtime_source_hash':runtime_source_hash(),
+    body={'schema':'eitr-matrix-protocol-1','cache_preflight':inspect_caches,'spec':spec,'files':files,'runtime_source_hash':runtime_source_hash(),
           'environment':environment_identity(),'asset_reports':reports,'questions_hash':digest(questions),
           'question_count':len(questions),'claim':'engineering validation; no quality or cost savings assumed'}
     return {**body,'protocol_hash':digest(body)}
@@ -113,7 +113,7 @@ def freeze(spec):
 def verify_protocol(protocol):
     require(protocol.get('schema')=='eitr-matrix-protocol-1' and protocol.get('protocol_hash')==digest(
         {k:v for k,v in protocol.items() if k!='protocol_hash'}),'Matrix protocol hash mismatch')
-    current=freeze(protocol['spec'])
+    current=freeze(protocol['spec'],inspect_caches=protocol.get('cache_preflight',True))
     require(all(current['files'].get(path)==value for path,value in protocol['files'].items()),
             'Frozen matrix asset/cache changed or disappeared')
     # New content-addressed caches may legitimately be added by the first run.

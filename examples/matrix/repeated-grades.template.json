@@ -1,0 +1,14 @@
+[
+  {
+    "trial": 0,
+    "rows": "/absolute/path/to/graded-trial-0/rows.json"
+  },
+  {
+    "trial": 1,
+    "rows": "/absolute/path/to/graded-trial-1/rows.json"
+  },
+  {
+    "trial": 2,
+    "rows": "/absolute/path/to/graded-trial-2/rows.json"
+  }
+]

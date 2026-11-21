@@ -1,3 +1,3 @@
 """Evidence-induced tag routing; separate from EICR premise diagnosis."""
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
