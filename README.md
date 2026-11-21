@@ -1,6 +1,6 @@
 # EICR
 
-**2026-11-21：当前主线升级为 v0.3.0「问题条件下的 tag 矩阵检索＋成熟重排器」。** 使用 `eitr matrix-*`：一次问题需求解析 → 下游事实多行矩阵匹配 → 固定预算候选 → 原文重排、装包和回答。tag 图是可选消融；当前主线不再使用委员会和入口重要性动态配额。包括 live embedding 接口、协议冻结、批量实验、完整回放和隔离评分。详见[数学与运行说明](docs/matrix_v3_implementation_20261121.md)、[实现验收报告](docs/matrix_v3_completion_20261121.md)。
+**2026-11-21：当前主线升级为 v0.3.1「问题条件下的 tag 矩阵检索＋成熟重排器」。** 使用 `eitr matrix-*`：一次问题需求解析 → 下游事实多行矩阵匹配 → 固定预算候选 → 原文重排、装包和回答。tag 图是可选消融；当前主线不再使用委员会和入口重要性动态配额。包括 live embedding 接口、协议冻结、批量实验、完整回放和隔离评分。本轮复核修复了图扩展过滤、缓存预检、计划记录与评分校验问题，见[审计修复报告](docs/matrix_v3_review_20261121.md)。详见[数学与运行说明](docs/matrix_v3_implementation_20261121.md)、[实现验收报告](docs/matrix_v3_completion_20261121.md)。
 
 ```bash
 python examples/matrix/offline_smoke.py --out /tmp/new-matrix-smoke

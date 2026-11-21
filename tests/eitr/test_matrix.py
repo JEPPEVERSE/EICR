@@ -186,7 +186,11 @@ def test_live_embedding_transport_reorders_indices(monkeypatch,tmp_path):
         def read(self,n):return json.dumps({'data':[{'index':1,'embedding':[0,1,0,0]},
             {'index':0,'embedding':[1,0,0,0]}],'usage':{'prompt_tokens':4}}).encode()
     monkeypatch.setenv('MATRIX_TEST_KEY','secret-test-only')
-    monkeypatch.setattr(mod,'_open_no_redirect',lambda *a,**k:Response())
+    def open_response(request, **kwargs):
+        payload=json.loads(request.data)
+        assert payload['dimensions']==4 and payload['input']==['a','b']
+        return Response()
+    monkeypatch.setattr(mod,'_open_no_redirect',open_response)
     assert backend.embed(['a','b'],'document')==[[1.,0,0,0],[0,1.,0,0]]
     assert backend.calls[0]['billing_kind']=='embedding_tokens'
     assert 'secret-test-only' not in json.dumps(backend.calls)
@@ -203,14 +207,14 @@ def test_frozen_protocol_cli_batch_grade_and_replay(snapshot,tmp_path,monkeypatc
     from eitr import matrix_embeddings as mod
     spec_e=embedding_spec(tmp_path);backend=EmbeddingBackend(spec_e)
     fake=Embeddings();monkeypatch.setattr(mod.EmbeddingBackend,'embed',lambda self,texts,role:fake.embed(texts,role))
-    record=embed_snapshot(snapshot,backend,cache_dir=spec_e['cache_dir'])
+    record=embed_snapshot(snapshot,backend,cache_dir=spec_e['cache_dir'],cache_only=False)
     index=build_index(snapshot,record);ip=tmp_path/'index.json';index.save(ip)
     cfg=config();cp=tmp_path/'corpus.json';Corpus(snapshot,CharacterTokenizer(),cfg).save(cp)
     question={'question_id':'q','owner_id':snapshot['owner_id'],'snapshot_id':snapshot['snapshot_id'],'question':'What herbs?'}
     qp=tmp_path/'questions.json';write_json(qp,[question]);tp=tmp_path/'tokenizer.json';write_json(tp,{'kind':'characters'})
     cfgp=tmp_path/'config.json';write_json(cfgp,cfg.to_dict())
     # Populate query caches explicitly, then prove experiment makes no provider calls.
-    prepare_query(index,question['question'],backend,config=cfg,embedding_options={'cache_dir':spec_e['cache_dir']})
+    prepare_query(index,question['question'],backend,config=cfg,embedding_options={'cache_dir':spec_e['cache_dir'],'cache_only':False})
     spec={'config':cfg.to_dict(),'arms':['matrix_embedding'],'tokenizer':{'kind':'characters'},
           'assets':[{'index':str(ip),'corpus':str(cp)}],'questions':str(qp),'embedding':spec_e,
           'frontend':'whole_query','model':None,'plan_cache_dir':str(tmp_path/'plans'),'plan_cache_only':False,
@@ -331,3 +335,165 @@ def test_generation_failure_is_not_dropped_from_grading(built,tmp_path):
     rows=grade_batch(root,labels,index,NoJudge(),tmp_path/'grades')
     assert len(rows)==1 and rows[0]['correct'] is False and rows[0]['answer_contract_valid'] is False
     assert rows[0]['online_tokens'] is None
+
+
+def test_graph_expansion_can_discover_zero_query_similarity_tag(raw_memory):
+    from eitr.native import canonicalize
+    # Two modes in the seed tag bridge to a target orthogonal to the query.
+    raw_memory['evidence'][1]['tags']=['shopping']
+    snap=canonicalize(raw_memory);b=Embeddings();record=embed_snapshot(snap,b)
+    record['vectors']=[[1,0,0,0],[.6,.8,0,0],[0,1,0,0],[0,0,0,1]]
+    record['record_hash']=digest({k:v for k,v in record.items() if k!='record_hash'})
+    index=build_index(snap,record,graph_top_k=2,graph_shortlist=3)
+    cfg=config(direct_facts=1,tags_per_requirement=1,graph_tags_per_requirement=1,max_core_atoms=4,max_candidate_atoms=4)
+    corpus=Corpus(snap,CharacterTokenizer(),cfg)
+    plain,_,_=candidates(index,corpus,[[1,0,0,0]],cfg,'matrix_rerank')
+    pool,_,_=candidates(index,corpus,[[1,0,0,0]],cfg,'matrix_graph_rerank')
+    assert 'D1:10' not in plain['source_stages']['candidate']
+    assert 'D1:10' in pool['source_stages']['candidate']
+    assert 'D2:1' not in pool['source_stages']['candidate']
+
+
+def test_embedding_backend_options_are_honored_by_prepare_query(built,tmp_path):
+    index,_=built
+    class Backend:
+        identity=index.embedding['request']['backend']
+        spec={'cache_dir':str(tmp_path/'missing-cache'),'cache_only':True,'batch_size':1}
+        calls=[]
+        def embed(self,*args): pytest.fail('cache_only backend must not make a live call')
+    with pytest.raises(ContractError,match='Required embedding cache missing'):
+        prepare_query(index,'herbs',Backend())
+
+
+@pytest.fixture
+def frozen_assets(snapshot,tmp_path,monkeypatch):
+    from eitr import matrix_embeddings as mod
+    es=embedding_spec(tmp_path);backend=EmbeddingBackend(es);fake=Embeddings()
+    monkeypatch.setattr(mod.EmbeddingBackend,'embed',lambda self,ts,role:fake.embed(ts,role))
+    rec=embed_snapshot(snapshot,backend,cache_only=False)
+    index=build_index(snapshot,rec);ip=tmp_path/'index.json';index.save(ip)
+    cfg=config();cp=tmp_path/'corpus.json';Corpus(snapshot,CharacterTokenizer(),cfg).save(cp)
+    question={'question_id':'q','question':'What herbs?','owner_id':snapshot['owner_id'],'snapshot_id':snapshot['snapshot_id']}
+    qp=tmp_path/'questions.json';write_json(qp,[question])
+    prepared=prepare_query(index,question['question'],backend,config=cfg,embedding_options={'cache_only':False})
+    spec={'config':cfg.to_dict(),'arms':['matrix_embedding'],'tokenizer':{'kind':'characters'},
+          'assets':[{'index':str(ip),'corpus':str(cp)}],'questions':str(qp),'embedding':es,
+          'frontend':'whole_query','model':None,'plan_cache_dir':str(tmp_path/'plans'),'plan_cache_only':True,
+          'reranker':None,'generate':False}
+    return spec,index,prepared
+
+
+def test_preflight_rejects_missing_and_changed_embedding_cache(frozen_assets,tmp_path):
+    spec,index,prepared=frozen_assets
+    protocol=freeze(spec)
+    path=tmp_path/'embeddings'/(digest(prepared['embedding']['request'])+'.json')
+    assert str(path) in protocol['files']
+    original=path.read_bytes();path.unlink()
+    with pytest.raises(ContractError,match='embedding cache missing'):freeze(spec)
+    path.write_bytes(original)
+    record=read_json(path);record['vectors'][0]=[0,0,1,0]
+    record['record_hash']=digest({k:v for k,v in record.items() if k!='record_hash'});write_json(path,record)
+    with pytest.raises(ContractError,match='cache changed'):verify_protocol(protocol)
+
+
+def test_preflight_missing_rerank_cache_and_first_arm_failure_journal(frozen_assets,tmp_path,monkeypatch):
+    from eitr import matrix_experiment as experiment
+    spec,index,prepared=frozen_assets
+    spec['arms']=['matrix_rerank']
+    spec['reranker']={'provider':'dashscope','endpoint':'https://example.invalid/rerank','model':'test','key_env':'TEST_KEY',
+                     'max_documents':500,'cache_dir':str(tmp_path/'rerank'),'cache_only':True}
+    with pytest.raises(ContractError,match='rerank cache missing'):freeze(spec)
+    spec['arms']=['matrix_embedding'];spec['reranker']=None
+    protocol=freeze(spec)
+    def fail(*args,**kwargs):raise ContractError('test first-arm error')
+    monkeypatch.setattr(experiment,'retrieve',fail)
+    out=tmp_path/'failed-run'
+    with pytest.raises(ContractError,match='first-arm'):run_protocol(protocol,out)
+    journal=read_json(out/'manifest.json')
+    assert journal['status']=='failed' and journal['failure']['question_id']=='q'
+    assert journal['failure']['arm']=='matrix_embedding' and journal['failure']['prepared_query']
+    case=read_json(out/digest([index.snapshot['owner_id'],index.snapshot['snapshot_id']])[:24]/(digest('q')[:24]+'.json'))
+    assert case['prepared_query']==prepared and case['rows']==[]
+    # Runtime's deterministic plan cache is newly created, not a stale protocol.
+    assert verify_protocol(protocol)==protocol
+
+
+def test_preflight_plan_cache_missing(frozen_assets,tmp_path):
+    spec,_,_=frozen_assets
+    spec['frontend']='llm'
+    spec['model']={'api_base':'https://example.invalid/v1','model':'test','key_env':'TEST_KEY','max_output_tokens':128}
+    with pytest.raises(ContractError,match='plan cache missing'):freeze(spec)
+
+
+def test_empty_pool_cache_only_does_not_call_provider(built,tmp_path):
+    index,b=built;cfg=config();corpus=Corpus(index.snapshot,CharacterTokenizer(),cfg)
+    pool,_,_=candidates(index,corpus,[[-1,-1,-1,-1]],cfg,'matrix_rerank')
+    assert not pool['atom_ids']
+    from eitr.rerank import rerank_pool
+    rb=Reranker();result=rerank_pool('nothing',corpus,pool,rb,cache_dir=tmp_path,cache_only=True)
+    assert result['scores']=={} and result['calls']==[] and rb.calls==[]
+
+
+def test_plan_record_must_match_raw_response():
+    q='What animal do both Nate and Joanna like?';record=plan_record(q,supplied=compound_plan())
+    record['plan']['requirements'][0]['text']='Nate likes imagined animals'
+    record['record_hash']=digest({k:v for k,v in record.items() if k!='record_hash'})
+    with pytest.raises(ContractError,match='raw frontend'):verify_plan_record(record,q)
+
+
+def test_mixed_cost_summary_and_failure_counters(built):
+    from eitr.accounting import cost_report
+    index,b=built;cfg=config();corpus=Corpus(index.snapshot,CharacterTokenizer(),cfg)
+    run=retrieve(index,'herbs',corpus,prepare_query(index,'herbs',b),config=cfg,reranker=Reranker())
+    result=cost_report([run])['arms']['matrix_rerank']
+    assert result['by_billing_kind']['embedding_tokens']['calls']==1
+    assert result['by_billing_kind']['rerank_tokens']['calls']==1
+    assert result['frontend_error_runs']==0
+    assert result['mean_end_to_end_seconds'] is None  # No fake independent timing.
+
+
+@pytest.mark.parametrize('fault',['missing_arm','wrong_question','empty_rows'])
+def test_grading_rejects_incomplete_or_mismatched_runs_before_judge(built,tmp_path,fault):
+    index,b=built;cfg=config();corpus=Corpus(index.snapshot,CharacterTokenizer(),cfg)
+    run=retrieve(index,'herbs',corpus,prepare_query(index,'herbs',b),config=cfg,reranker=Reranker())
+    span=run['evidence_pack']['spans'][0]
+    run['answer']={'answer_text':'herbs','resolution_status':'supported',
+                  'citations':[{k:span[k] for k in ('source_id','start','end')}],'unsupported_premises':[]}
+    if fault=='wrong_question':run['question']='different question'
+    run['run_hash']=digest({k:v for k,v in run.items() if k!='run_hash'})
+    case={'question_id':'q','question':'herbs','index_hash':index.index_hash,'rows':[] if fault=='empty_rows' else [run]}
+    root=tmp_path/'batch';filename=digest('q')[:24]+'.json';write_json(root/filename,case)
+    write_json(root/'manifest.json',{'schema':'eitr-matrix-batch-1','status':'complete','index_hash':index.index_hash,
+        'arms':['matrix_rerank','direct_rerank'] if fault=='missing_arm' else ['matrix_rerank'],
+        'completed':[{'question_id':'q','file':filename,'content_hash':digest(case)}]})
+    labels=[{'question_id':'q','owner_id':index.snapshot['owner_id'],'snapshot_id':index.snapshot['snapshot_id'],
+             'references':['herbs'],'source_ids':[]}]
+    class NoJudge:
+        calls=[]
+        def chat_json(self,*args):pytest.fail('Invalid batch must fail before judge')
+    with pytest.raises(ContractError):grade_batch(root,labels,index,NoJudge(),tmp_path/'grades')
+    assert not (tmp_path/'grades').exists()
+
+
+def test_supplied_plan_has_no_mutable_alias():
+    q='What animal do both Nate and Joanna like?';supplied=compound_plan()
+    record=plan_record(q,supplied=supplied)
+    supplied['requirements'][0]['text']='external mutation'
+    assert verify_plan_record(record,q)['requirements'][0]['text']=='What animal does Nate like?'
+    record['plan']['requirements'][0]['text']='plan mutation'
+    assert record['raw_response']['requirements'][0]['text']=='What animal does Nate like?'
+
+
+def test_random_blocked_relations_against_dense():
+    rng=np.random.default_rng(281)
+    for n,m,d in [(1,7,4),(9,2,3),(13,17,8)]:
+        x=unit_rows(rng.normal(size=(n,d)),n,d);y=unit_rows(rng.normal(size=(m,d)),m,d)
+        wx=rng.random(n);wx/=wx.sum();wy=rng.random(m);wy/=wy.sum()
+        k=np.clip(x@y.T,0,1)
+        for block in (1,3,32):
+            got=relation(x,y,wx,wy,block)
+            assert got['average']==pytest.approx(wx@k@wy)
+            assert got['coverage_forward']==pytest.approx(wx@k.max(axis=1))
+            assert got['coverage_reverse']==pytest.approx(wy@k.max(axis=0))
+            assert got['bridge']==pytest.approx(k.max())
+            assert k[tuple(got['witness_rows'])]==pytest.approx(k.max())

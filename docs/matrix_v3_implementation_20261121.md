@@ -1,6 +1,6 @@
 # v3：问题条件下的 tag 矩阵检索与重排
 
-2026-11-21。本文对应 `eitr matrix-*` 可执行主线，版本 0.3.0。历史 `P*`、`C_*` 与入口扰动命令保留用于复现，不是新主线的默认调度。新主线没有委员会投票、入口重要性动态配额、循环 LLM 探索或新增 judge。
+2026-11-21。本文对应 `eitr matrix-*` 可执行主线，版本 0.3.1。历史 `P*`、`C_*` 与入口扰动命令保留用于复现，不是新主线的默认调度。新主线没有委员会投票、入口重要性动态配额、循环 LLM 探索或新增 judge。
 
 ## 实现范围
 
@@ -64,7 +64,7 @@ W_{jt}=\arg\max_{i\in I_t}A_{ji}.
 
 1. 前端只进行一次问题计划调用，替换旧的关键词候选截断＋tag 名称 LLM 评分。需求文本可改写，但 anchors、subjects、constraints、非平凡 operator_anchor 必须出现在原问题中；交集、分主体和比较还检查各主体在需求里的绑定。字面 grounding 能阻止新增未出现的实体字段，**不能证明自由改写语义一定正确**。
 2. 无前端、调用失败、无效 JSON/字段或 unknown 组合，显式降级到完整原问；保留失败调用账和状态。供应的 plan 仅能在 `supplied` 模式进入，问题文件禁止 labels/answers 等字段。
-3. 对原问和各需求分别选择 top tags、每 tag 的 top facts；同时保留直接事实通道。固定轮转合并队列，不根据入口“重要性”动态改变预算。图臂最多两跳，以 `R[j,u] × D(t→u)` 排扩展候选，限定每跳新增 tag 数。
+3. 对原问和各需求分别选择 top tags、每 tag 的 top facts；同时保留直接事实通道。固定轮转合并队列，不根据入口“重要性”动态改变预算。图臂最多两跳，只允许正覆盖权重的边，先按 `R[j,u] × D(t→u)` 排扩展候选，再以边强度打破零分或同分的并列，限定每跳新增 tag 数。目标 tag 的问题相似度为零时仍可由正权重桥接边召回，且转为原文候选时不再被零相似度过滤；这类证据由 reranker 进一步判别。
 4. 事实 provenance 只有 source 粒度，不能伪造 fact 的精确字符区间。因此每个入选事实的全部原始 source atoms 都有机会成为 core，并在事实/来源之间轮转，避免长来源只保留开头。遇到候选上限时，core 与其邻接上下文完整保留或完整拒绝。
 5. reranker 对候选原文 atom 及已准入的邻接上下文打分，保留说话者和日期；一个问题的候选最多 500 个，拒绝拆成多次请求后混比分数。默认 480 留在服务上限内。重排查询使用原问题。
 6. 装包先按需求固定顺序各尝试选一个动作，优先级为原文 token 加权的 `rerank_score × requirement_similarity` 增益除以实际新增渲染成本；然后以整题 rerank 相关密度填充。后者不是新委员会。整包 token 数包含渲染头部、日期等，跨度合并后重新计数。固定轮转无法在预算过小时保证每个需求都覆盖，日志保留需求相似度；它不是证据充分性判断。
@@ -84,7 +84,7 @@ W_{jt}=\arg\max_{i\in I_t}A_{ji}.
 
 ## 可复现运行
 
-在仓库根目录安装 `pip install -e '.[test,tokens,pilot]'`。模板见 `examples/matrix/`；需要把绝对路径、模型和 tokenizer SHA256 替换为实际配置。模板不含 API key，代码不自动读取 `.env`。`revision` 是服务身份声明；托管 alias 不保证权重不变，实际 embedding 和 rerank 输出由记录文件固定。
+在仓库根目录安装 `pip install -e '.[test,tokens,pilot]'`。模板见 `examples/matrix/`；需要把绝对路径、模型和 tokenizer SHA256 替换为实际配置。模板不含 API key，代码不自动读取 `.env`。`revision` 是服务身份声明；托管 alias 不保证权重不变，实际 embedding 和 rerank 输出由记录文件固定。embedding 请求会显式发送 `dimensions`；Python API 省略缓存参数时也会继承 backend 的 cache_only/cache_dir/batch_size，显式传参可覆盖。
 
 准备矩阵索引（`--snapshot` 同时接受 canonical snapshot 或包含该 snapshot 的历史 index）：
 
@@ -129,9 +129,9 @@ eitr matrix-preflight --protocol /absolute/path/to/protocol.json --out /absolute
 eitr matrix-experiment --protocol /absolute/path/to/protocol.json --out /absolute/path/to/new-experiment
 ```
 
-问题行只允许 `question_id, owner_id, snapshot_id, question`，supplied 模式额外允许 `plan`。全部 arm 共享同一题计划和查询 embedding，调用账仍按独立部署计入每个 arm；准备耗时单独记录，不能把排除了准备阶段的 retrieval_total 当端到端延迟。重复实验需新输出目录；缓存命中保留原调用成本。
+问题行只允许 `question_id, owner_id, snapshot_id, question`，supplied 模式额外允许 `plan`。冻结/预检会只读检查所需缓存链，并固定当时已存在的计划、查询 embedding、rerank 缓存内容。缺少必需的 cache-only 文件会提前失败；whole_query/supplied 计划可确定性生成，不要求计划缓存。依赖尚未生成的 live plan 却要求下游 cache-only 的组合会被拒绝，需先准备计划。首次运行合法新增的缓存不会使原协议失效，但已固定缓存不能变更。全部 arm 共享同一题计划和查询 embedding，调用账仍按独立部署计入每个 arm；准备耗时单独记录，不能把排除了准备阶段的 retrieval_total 当端到端延迟。重复实验需新输出目录；缓存命中保留原调用成本。
 
-输出含实验 manifest、每个 owner/snapshot 的 batch manifest、逐题 rows。失败时写入 failure 状态与已有调用账，之前完成的题目和当前已完成的 arm 不丢失。
+输出含实验 manifest、每个 owner/snapshot 的 batch manifest、逐题 rows。准备完一题后即先落盘，再运行各实验臂；失败时写入题号、arm、prepared_query、failure 状态与已有调用账，之前完成的题目和当前已完成的 arm 不丢失。
 
 ```bash
 eitr matrix-replay --index /absolute/path/to/matrix-index.json \
@@ -148,7 +148,7 @@ eitr summarize --rows /absolute/path/to/new-grading/rows.json --bootstrap 2000 -
 
 批结果中每个 `rows[i]` 是可单独保存并回放的 run。回放校验 code/index/plan/vector/score hashes，重新计算匹配、witness、候选、选择和原文证据包；不重新调用模型，也不声称重现生成的随机性。宽松评分可另跑 `mragent_lenient`，不能与 strict 混合汇总。
 
-`eitr cost-report` 支持 runs 列表；ledger 的 `by_billing_kind` 单独列出 chat、embedding、rerank。旧单一 chat 价格表不应用到混合账单，混合时 USD 返回 unknown；离线 embedding 成本在 index/build metrics 中，不混入在线。不能由“总 token”直接推导混合服务的美元节省。
+`eitr cost-report` 支持 runs 列表；ledger 和 cost-report 汇总的 `by_billing_kind` 单独列出 chat、embedding、rerank。旧单一 chat 价格表不应用到混合账单，混合时 USD 返回 unknown；离线 embedding 成本在 index/build metrics 中，不混入在线。不能由“总 token”直接推导混合服务的美元节省。
 
 无需 API 的 wiring smoke：
 
@@ -168,3 +168,10 @@ smoke 使用明确标注的 synthetic embedding、synthetic reranker 和字符�
 - 事实抽取遗漏、错误主体绑定、被上游改写错的事实，矩阵表示不能自动修复。原文重排与回答提供后续核验机会，不提供正确性保证。
 - 当前查询端扫描所有事实行，复杂度约 O(JNd)，尚未实现 ANN/分层剪枝。它去掉的是 LLM 多轮探索，不是证明向量计算优于成熟 ANN。
 - 本次不包含训练式 attention、多头可学习权重、分层聚类界限、独立委员会或额外 judge；这些不属于已收窄的当前主线。
+
+## 审计后的能力边界
+
+- “都／分别”通过需求分解和回答约束实现；系统没有符号化的主体—关系事实库，因此不是程序执行的答案集合交集/逐主体蕴含验证。
+- 目前无独立的 `matrix-benchmark` 全流程延迟基准；批运行提供准备、检索、重排和回答分段时间。共享准备或缓存回放的时间不得冒充独立请求延迟，cost-report 中对应端到端延迟保持 null。
+- 混合服务已分账，但没有多模型独立美元价目表配置；在补齐真实服务价格前，USD 保持 unknown。
+- 本版本修改运行源码，旧 frozen protocol 和 run 的严格源码校验会失败；旧代码提交仍可复现旧实验，新实验需重新 freeze。

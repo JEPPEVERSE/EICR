@@ -108,7 +108,7 @@ def rerank_pool(question, corpus, pool, backend, *, cache_dir=None, cache_only=F
             {k: v for k, v in result.items() if k != 'record_hash'}), 'Stale/corrupt rerank cache')
         reused = True
     else:
-        require(not cache_only, 'Required rerank cache record missing')
+        require(not cache_only or not ids, 'Required rerank cache record missing')
         start = len(backend.calls)
         scores = backend.score(question, documents) if ids else []
         require(len(scores) == len(ids), 'Incomplete semantic scores')

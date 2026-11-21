@@ -81,7 +81,14 @@ def cost_report(runs, prices=None, offline=None):
         grouped.setdefault(run['arm'],[]).append(run)
     report={}
     for arm, rows in grouped.items():
-        ledgers=[cost_ledger(r,prices)['independent_deployment'] for r in rows]
+        full_ledgers=[cost_ledger(r,prices) for r in rows]
+        ledgers=[l['independent_deployment'] for l in full_ledgers]
+        kinds=sorted({k for ledger in full_ledgers for k in ledger['by_billing_kind']})
+        kind_summary={}
+        for kind in kinds:
+            entries=[ledger['by_billing_kind'].get(kind,usage([])) for ledger in full_ledgers]
+            kind_summary[kind]={'mean_tokens':mean(e['total_tokens'] for e in entries) if all(e['usage_complete'] for e in entries) else None,
+                                'calls':sum(e['calls'] for e in entries),'missing_usage_runs':sum(not e['usage_complete'] for e in entries)}
         # Never turn shared-setup replay fragments into end-to-end latency.
         measured=[r for r in rows if r.get('benchmark',{}).get('independent_request')
                   and not r.get('benchmark',{}).get('rerank_cache_reused')
@@ -89,11 +96,13 @@ def cost_report(runs, prices=None, offline=None):
         durations=[r['benchmark']['wall_seconds'] for r in measured if r['benchmark'].get('has_answer_call')]
         retrieval=[r['timing_seconds']['retrieval_total'] for r in rows if r.get('benchmark',{}).get('independent_request')]
         complete=all(l['usage_complete'] for l in ledgers)
-        report[arm]={'runs':len(rows),'mean_online_tokens':mean(l['total_tokens'] for l in ledgers) if complete else None,
+        report[arm]={'runs':len(rows),'by_billing_kind':kind_summary,'mean_online_tokens':mean(l['total_tokens'] for l in ledgers) if complete else None,
             'mean_usd':mean(l['usd'] for l in ledgers) if all(l['usd'] is not None for l in ledgers) else None,
             'missing_usage_runs':sum(not l['usage_complete'] for l in ledgers),
             'native_protocol_error_runs':sum(r.get('native_loop_result',{}).get('status')=='native_loop_error' for r in rows),
-            'frontend_error_runs':sum(bool(r.get('query',{}).get('frontend_errors')) for r in rows),
+            'frontend_error_runs':sum(bool(r.get('query',{}).get('frontend_errors')) or
+                r.get('query',{}).get('plan',{}).get('fallback_reason') in ('frontend_unavailable','invalid_plan') for r in rows),
+            'answer_error_runs':sum(bool(r.get('answer_error')) for r in rows),
             'total_calls':sum(l['calls'] for l in ledgers),'failed_calls':sum(l['failed_calls'] for l in ledgers),
             'independent_latency_runs':len(measured),'end_to_end_latency_runs':len(durations),
             'frontend_modes':sorted({r['benchmark']['frontend_mode'] for r in measured}),

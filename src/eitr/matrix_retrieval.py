@@ -89,26 +89,31 @@ def candidates(index,corpus,question_vectors,config,arm):
                     for e in index.graph[t]:
                         u=e['target']
                         if u not in seen:
-                            # Edge strength only gates expansion; query compatibility chooses direction.
-                            scores[u]=max(scores.get(u,0.),r[row,tagpos[u]]*e['coverage_forward'])
-                frontier=sorted((t for t,s in scores.items() if s>0),key=lambda t:(-scores[t],t))[:config.graph_tags_per_requirement]
+                            # Positive edges may bridge a query-orthogonal tag. Keep the
+                            # original query*edge ordering; use edge strength for zero-score
+                            # ties, never promote disconnected zero-weight edges.
+                            strength=float(e['coverage_forward'])
+                            if strength > 0:
+                                scores[u]=max(scores.get(u,(0.,0.)),
+                                              (r[row,tagpos[u]]*strength,strength))
+                frontier=sorted(scores,key=lambda t:(-scores[t][0],-scores[t][1],t))[:config.graph_tags_per_requirement]
                 extra.extend(frontier);seen.update(frontier)
         tag_routes.append(tags);graph_routes.append(extra)
         queues=[fact_order(row,index.members[t])[:config.facts_per_tag] for t in tags+extra]
         routed.append(list(dict.fromkeys(i for _,i in round_robin(queues))))
     # Source-level provenance is not a fact-to-character alignment. Keep every raw
     # atom as an eligible core, ordered round-robin across facts and origins.
-    def atoms_for(fids,row):
+    def atoms_for(fids,row,allow_zero=False):
         lists=[]
         for i in fids:
-            if a[row,i]<=0: continue
+            if a[row,i]<=0 and not allow_zero: continue
             origins=index.facts[i]['origins']
             lists.append(list(dict.fromkeys(aid for _,aid in round_robin([corpus.source_atoms[s] for s in origins]))))
         return list(dict.fromkeys(aid for _,aid in round_robin(lists)))
     queues=[]
     for row in range(n):
         queues.append(atoms_for(direct[row],row))
-        if arm!='direct_rerank': queues.append(atoms_for(routed[row],row))
+        if arm!='direct_rerank': queues.append(atoms_for(routed[row],row,allow_zero=arm=='matrix_graph_rerank'))
     all_before={aid for queue in queues for aid in queue}
     admitted=set(); actions=[]; seen_core=set(); dropped=0
     for _,core in round_robin(queues):

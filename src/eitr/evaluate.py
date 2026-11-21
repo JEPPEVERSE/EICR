@@ -255,6 +255,7 @@ def grade_batch(batch_dir, labels, index, backend, output_dir, *, judge_profile=
         require(judge_profile != 'mragent_lenient' or len(label['references']) == 1,
                 'mragent_lenient requires one gold answer, matching the upstream rubric')
         by_id[label['question_id']]=label
+    require(len(manifest['completed'])==len({x['question_id'] for x in manifest['completed']}), 'Duplicate completed questions')
     require(set(by_id)=={x['question_id'] for x in manifest['completed']}, 'Label coverage must match frozen batch')
     # Validate every answer before any judge calls, and never follow an input path outside this batch.
     cases=[]
@@ -264,7 +265,14 @@ def grade_batch(batch_dir, labels, index, backend, output_dir, *, judge_profile=
         result=read_json(root/expected)
         require(item.get('content_hash')==digest(result),'Batch run content changed after completion')
         require(result['question_id']==item['question_id'] and result['index_hash']==index.index_hash,'Invalid grading run identity')
+        require(isinstance(result.get('rows'),list) and result['rows'], 'Empty batch rows cannot be graded')
+        if manifest.get('schema')=='eitr-matrix-batch-1':
+            require([r.get('arm') for r in result['rows']]==manifest['arms'], 'Incomplete/duplicate matrix arms')
         for run in result['rows']:
+            if run.get('schema')=='eitr-matrix-run-1':
+                require(run.get('run_hash')==digest({k:v for k,v in run.items() if k!='run_hash'}) and
+                        run['question']==result['question'] and run['index_hash']==index.index_hash and
+                        run['snapshot_hash']==index.snapshot['content_hash'], 'Matrix grading run scope/hash mismatch')
             answer_present = isinstance(run.get('answer'),dict) and isinstance(run['answer'].get('answer_text'),str)
             recorded_failure = run.get('schema') == 'eitr-matrix-run-1' and bool(run.get('answer_error'))
             require(answer_present or recorded_failure, 'All runs must have answers or recorded matrix generation failures before grading')

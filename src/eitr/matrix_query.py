@@ -1,5 +1,6 @@
 """One query-plan call, grounded literals, explicit fallback and replay contracts."""
 import json
+from copy import deepcopy
 from pathlib import Path
 from eicr.contracts import digest, require, read_json, write_json, ContractError
 from eicr.provider import ProviderTransportError
@@ -47,25 +48,29 @@ def validate_plan(plan,question,max_requirements=8):
         require(isinstance(c,dict) and set(c)=={'kind','quote'} and c['kind'] in ('time','entity','relation','negation')
                 and literal(c['quote']), 'Ungrounded constraint')
     if plan['operator']=='unknown': return whole_plan(question,'ambiguous_operator')
-    return {**plan,'status':'parsed','fallback_reason':None}
+    return {**deepcopy(plan),'status':'parsed','fallback_reason':None}
+
+
+def plan_request(question, backend=None, supplied=None, max_requirements=8):
+    identity = ({'base_url_hash':digest(backend.base_url),'model':backend.model,
+                 'max_output_tokens':backend.max_output_tokens,'generation_options':backend.generation_options,
+                 'json_mode':backend.json_mode} if backend and hasattr(backend,'base_url')
+                else getattr(backend,'identity',{'mode':'supplied' if supplied is not None else 'whole_query'}))
+    return {'schema':'eitr-matrix-plan-request-1','question_hash':digest(question),
+             'prompt_hash':digest(PLAN_PROMPT),'backend':identity,'max_requirements':max_requirements,
+             'supplied_hash':digest(supplied) if supplied is not None else None}
 
 
 def plan_record(question, *, backend=None, supplied=None, cache_dir=None, cache_only=False, max_requirements=8):
     require(isinstance(question,str) and question.strip(),'Empty question')
     require(not (backend and supplied is not None),'Choose supplied or live plan')
-    identity = ({'base_url_hash':digest(backend.base_url),'model':backend.model,
-                 'max_output_tokens':backend.max_output_tokens,'generation_options':backend.generation_options,
-                 'json_mode':backend.json_mode} if backend and hasattr(backend,'base_url')
-                else getattr(backend,'identity',{'mode':'supplied' if supplied is not None else 'whole_query'}))
-    request={'schema':'eitr-matrix-plan-request-1','question_hash':digest(question),
-             'prompt_hash':digest(PLAN_PROMPT),'backend':identity,'max_requirements':max_requirements,
-             'supplied_hash':digest(supplied) if supplied is not None else None}
+    request=plan_request(question,backend,supplied,max_requirements)
     path=Path(cache_dir)/(digest(request)+'.json') if cache_dir else None
     if path and path.exists():
         record=read_json(path); verify_plan_record(record,question)
         require(record['request']==request,'Plan cache request mismatch');return record
     require(not cache_only,'Required plan cache missing')
-    calls=[]; raw=supplied
+    calls=[]; raw=deepcopy(supplied)
     if backend:
         start=len(backend.calls)
         try: raw=backend.chat_json(PLAN_PROMPT,json.dumps({'question':question},ensure_ascii=False))
@@ -85,12 +90,17 @@ def verify_plan_record(record,question):
     require(record.get('record_hash')==digest({k:v for k,v in record.items() if k!='record_hash'}) and
             record['request']['question_hash']==digest(question) and
             record['request']['prompt_hash']==digest(PLAN_PROMPT),'Plan replay hash/scope mismatch')
-    p=record['plan']
-    if p['status']=='fallback':
-        require(p==whole_plan(question,p['fallback_reason']),'Invalid fallback plan')
+    require(isinstance(record.get('calls'),list), 'Plan record lacks calls')
+    raw=record.get('raw_response'); p=record['plan']
+    supplied_hash=record['request'].get('supplied_hash')
+    require(supplied_hash is None or supplied_hash==digest(raw), 'Supplied plan raw response mismatch')
+    if raw is None:
+        mode=record['request']['backend'].get('mode')
+        expected=whole_plan(question,'whole_query_mode' if mode in ('whole_query','supplied') else 'frontend_unavailable')
     else:
-        require(p==validate_plan({k:v for k,v in p.items() if k not in ('status','fallback_reason')},
-                question,record['request']['max_requirements']),'Plan replay validation failed')
+        try: expected=validate_plan(raw,question,record['request']['max_requirements'])
+        except (ContractError,TypeError,KeyError): expected=whole_plan(question,'invalid_plan')
+    require(p==expected,'Plan does not match raw frontend response/fallback')
     return p
 
 

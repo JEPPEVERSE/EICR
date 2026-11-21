@@ -44,7 +44,7 @@ class EmbeddingBackend:
     def embed(self, texts, role):
         key = os.environ.get(self.spec['key_env'])
         require(key, 'Missing embedding credential variable: '+self.spec['key_env'])
-        payload = {'model':self.spec['model'], 'input':[self.spec[role+'_prefix']+t for t in texts], 'encoding_format':'float'}
+        payload = {'model':self.spec['model'], 'input':[self.spec[role+'_prefix']+t for t in texts], 'encoding_format':'float', 'dimensions':self.spec['dimension']}
         trace = {'model':self.spec['model'], 'billing_kind':'embedding_tokens', 'status':'started', 'request_hash':digest(payload)}
         self.calls.append(trace); tick = perf_counter()
         try:
@@ -75,7 +75,12 @@ class EmbeddingBackend:
         finally: trace['seconds']=perf_counter()-tick
 
 
-def embed_record(texts, role, scope, backend, *, cache_dir=None, cache_only=False, batch_size=64):
+def embed_record(texts, role, scope, backend, *, cache_dir=None, cache_only=None, batch_size=None):
+    defaults = getattr(backend, 'spec', {})
+    cache_dir = cache_dir if cache_dir is not None else defaults.get('cache_dir')
+    cache_only = cache_only if cache_only is not None else defaults.get('cache_only', False)
+    batch_size = batch_size if batch_size is not None else defaults.get('batch_size', 64)
+    require(type(cache_only) is bool, 'Invalid embedding cache mode')
     require(role in ('query','document') and isinstance(texts,list) and texts and
             all(isinstance(t,str) and t.strip() for t in texts), 'Invalid embedding input')
     require(type(batch_size) is int and 0 < batch_size <= 256, 'Invalid embedding batch size')
