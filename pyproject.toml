@@ -17,10 +17,12 @@ Repository = "https://github.com/JEPPEVERSE/EICR"
 test = ["pytest>=7", "build>=1"]
 tokens = ["tiktoken>=0.7"]
 pilot = ["tokenizers==0.22.2"]
+native-tag = ["openai>=1.0", "sentence-transformers>=3.0"]
 
 [project.scripts]
 eicr = "eicr.cli:main"
 eitr = "eitr.cli:main"
+native-tag = "native_tag.cli:entrypoint"
 
 [tool.setuptools.packages.find]
 where = ["src"]

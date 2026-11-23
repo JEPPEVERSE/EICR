@@ -1,0 +1,208 @@
+{
+  "date": "2026-11-23",
+  "source_sha256": {
+    "artifacts/native_tag_comparison_20261122/analysis.json": "594ba8761d1a85de881dbb4b7aedbfeb2bf7358e9cac4c283f8c4dff53c9418c",
+    "artifacts/native_tag_comparison_20261122/fairness-and-cost-audit.json": "87fd4f9c731857708e4794744306fa1d84d6ba43a8c26f5e082fb39d1ffbcae3",
+    "artifacts/native_tag_optimization_20261123/replay-analysis.json": "583d5fee3ed52002d2a1c11d7334bdedc1ddd4fad21c9b9e33518bd733eba6ef",
+    "artifacts/native_tag_optimization_20261123/v2-evaluation/replay-analysis.json": "0101427ab94fe5b93859a521af4bc97c641e511d4c4350b69ed9d314e7b422f4",
+    "artifacts/native_tag_development_repeat_20261123/evaluation/replay-analysis.json": "b1428922916f8ae0c2795789ed1f83fd929b6eee5c36681371af925480469dac"
+  },
+  "quality_scope": "frozen_automated_scores_not_human_adjudication",
+  "end_to_end": {
+    "questions": 32,
+    "owners": 4,
+    "repeats_per_question": 2,
+    "points": [
+      {
+        "arm": "native",
+        "n_requests": 64,
+        "strict_correct": 45,
+        "strict_accuracy": 0.703125,
+        "lenient_accuracy": 0.859375,
+        "online_usd_per_query": 0.002370882046875,
+        "uncached_repricing_usd_per_query": 0.00388731796875,
+        "usd_per_automatically_correct": 0.003371921133333333,
+        "wall_seconds_per_query": 17.831271175108668
+      },
+      {
+        "arm": "cheap_all",
+        "n_requests": 64,
+        "strict_correct": 42,
+        "strict_accuracy": 0.65625,
+        "lenient_accuracy": 0.828125,
+        "online_usd_per_query": 0.00095271965625,
+        "uncached_repricing_usd_per_query": 0.00250824609375,
+        "usd_per_automatically_correct": 0.0014517632857142856,
+        "wall_seconds_per_query": 9.236499585283127
+      }
+    ],
+    "quality_delta_bounds": [
+      -0.1875,
+      0.1875
+    ],
+    "decision": "inconclusive",
+    "online_saving_fraction": 0.5981581380205077,
+    "uncached_saving_fraction": 0.3547617884840669,
+    "incremental_usd_per_additional_correct_native": 0.030254131,
+    "cost_by_stage_per_request": {
+      "native": {
+        "native_question_embedding": 0.0,
+        "question_parse": 0.00015654337499999997,
+        "initial_fact_select": 0.0002208740625,
+        "initial_tag": 0.0011526153749999999,
+        "tool_loop_and_answer": 0.0006278514375,
+        "expansion_tag": 0.000212997796875
+      },
+      "cheap_all": {
+        "native_question_embedding": 0.0,
+        "question_parse": 0.00015529649999999998,
+        "initial_fact_select": 0.000236512875,
+        "tool_loop_and_answer": 0.0005609102812499999,
+        "initial_tag": 0.0,
+        "expansion_tag": 0.0
+      }
+    }
+  },
+  "amortization": {
+    "incremental_build_usd": 0.110958468,
+    "break_even_queries": 79,
+    "formula": "C_cheap(Q)=online_cheap+B/Q; static snapshot, common build costs excluded",
+    "samples": [
+      {
+        "queries_per_build": 16,
+        "cheap_amortized_usd_per_query": 0.00788762390625,
+        "native_usd_per_query": 0.002370882046875,
+        "savings_fraction": -2.326873184875004
+      },
+      {
+        "queries_per_build": 32,
+        "cheap_amortized_usd_per_query": 0.00442017178125,
+        "native_usd_per_query": 0.002370882046875,
+        "savings_fraction": -0.8643575234272483
+      },
+      {
+        "queries_per_build": 64,
+        "cheap_amortized_usd_per_query": 0.00268644571875,
+        "native_usd_per_query": 0.002370882046875,
+        "savings_fraction": -0.1330996927033703
+      },
+      {
+        "queries_per_build": 79,
+        "cheap_amortized_usd_per_query": 0.0023572572258702532,
+        "native_usd_per_query": 0.002370882046875,
+        "savings_fraction": 0.005746730851796333
+      },
+      {
+        "queries_per_build": 128,
+        "cheap_amortized_usd_per_query": 0.0018195826875,
+        "native_usd_per_query": 0.002370882046875,
+        "savings_fraction": 0.23252922265856868
+      },
+      {
+        "queries_per_build": 1000,
+        "cheap_amortized_usd_per_query": 0.00106367812425,
+        "native_usd_per_query": 0.002370882046875,
+        "savings_fraction": 0.5513576368541795
+      },
+      {
+        "queries_per_build": 10000,
+        "cheap_amortized_usd_per_query": 0.00096381550305,
+        "native_usd_per_query": 0.002370882046875,
+        "savings_fraction": 0.5934780879038748
+      }
+    ]
+  },
+  "development_replay": {
+    "questions": 16,
+    "fixed_contexts": 32,
+    "points": [
+      {
+        "round": "v1",
+        "arm": "native",
+        "profile": "native",
+        "n_requests": 32,
+        "strict_correct": 27,
+        "strict_accuracy": 0.84375,
+        "input_tokens_per_answer": 2894.25,
+        "output_tokens_per_answer": 73.3125,
+        "uncached_repricing_usd_per_answer": 0.000478125,
+        "valid_citations": 32,
+        "format_or_call_failures": 0
+      },
+      {
+        "round": "v1",
+        "arm": "candidate",
+        "profile": "evidence_complete_v1",
+        "n_requests": 32,
+        "strict_correct": 27,
+        "strict_accuracy": 0.84375,
+        "input_tokens_per_answer": 3309.25,
+        "output_tokens_per_answer": 72.6875,
+        "uncached_repricing_usd_per_answer": 0.00054,
+        "valid_citations": 28,
+        "format_or_call_failures": 0
+      },
+      {
+        "round": "v2 first",
+        "arm": "native",
+        "profile": "native",
+        "n_requests": 32,
+        "strict_correct": 24,
+        "strict_accuracy": 0.75,
+        "input_tokens_per_answer": 2894.25,
+        "output_tokens_per_answer": 71.84375,
+        "uncached_repricing_usd_per_answer": 0.00047724374999999996,
+        "valid_citations": 32,
+        "format_or_call_failures": 0
+      },
+      {
+        "round": "v2 first",
+        "arm": "candidate",
+        "profile": "evidence_complete_v2",
+        "n_requests": 32,
+        "strict_correct": 25,
+        "strict_accuracy": 0.78125,
+        "input_tokens_per_answer": 3437.25,
+        "output_tokens_per_answer": 70.0,
+        "uncached_repricing_usd_per_answer": 0.0005575875,
+        "valid_citations": 32,
+        "format_or_call_failures": 0
+      },
+      {
+        "round": "v2 repeat",
+        "arm": "native",
+        "profile": "native",
+        "n_requests": 32,
+        "strict_correct": 26,
+        "strict_accuracy": 0.8125,
+        "input_tokens_per_answer": 2894.25,
+        "output_tokens_per_answer": 74.65625,
+        "uncached_repricing_usd_per_answer": 0.00047893124999999996,
+        "valid_citations": 31,
+        "format_or_call_failures": 0
+      },
+      {
+        "round": "v2 repeat",
+        "arm": "candidate",
+        "profile": "evidence_complete_v2",
+        "n_requests": 32,
+        "strict_correct": 24,
+        "strict_accuracy": 0.75,
+        "input_tokens_per_answer": 3437.25,
+        "output_tokens_per_answer": 69.09375,
+        "uncached_repricing_usd_per_answer": 0.0005570437499999999,
+        "valid_citations": 31,
+        "format_or_call_failures": 1
+      }
+    ],
+    "repricing": {
+      "input_per_million": 0.15,
+      "output_per_million": 0.6,
+      "cache": "all_uncached",
+      "currency": "USD",
+      "scope": "common historical tariff scenario, not actual current cost"
+    },
+    "not_comparable_to_end_to_end": true
+  },
+  "new_provider_calls": 0
+}

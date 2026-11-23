@@ -1,5 +1,9 @@
 # EICR
 
+2026-11-23：已回退到答案优化之前的 native-tag 实现，保留廉价 tag 选择器和原生回答。修正前 12 个实现文件指纹完全一致，回退后 371 项测试通过；答案候选及负结果归档保留。完整请求的成本优势与质量折中、缓存敏感性和离线摊销见[质量—成本分析](docs/native_tag_quality_cost_20261123.md)。
+
+**2026-11-22：当前研究方向为「保留原生 MRAgent，仅替换 tag 评分/选择」。** 作用域为 `(key, tag)`；原生事件读取、时间/上下文/topic/persona 工具、动态探索和回答保留。独立 `native-tag` 入口、原生两处评分接线、PAVA 校准、冻结运行与盲评报告见[实现与运行说明](docs/native_tag_selector_implementation_20261122.md)。[实验设计方案](docs/native_tag_selector_experiment_v1_20261122.md)与[设计参数](docs/native_tag_selector_experiment_defaults_v1_20261122.json)保留。**同标准 N/S 比较已完成 32 题、128 次请求：平均 API 费下降 59.82%，原始严格正确率 N 45/64、S 42/64；未决复核使结论不确定，未进入确认轮。** 详见[配对比较报告](docs/native_tag_comparison_report_20261122.md)。首轮因影子统计错误停止的[诊断报告](docs/native_tag_diagnostic_report_20261122.md)及[代码修复](docs/native_tag_live_code_repair_20261122.md)保留；此前覆盖审计见[审计修复报告](docs/native_tag_selector_repair_20261122.md)。
+
 **实验基础设施已补齐（0.3.2）**：全量精确 tag top-k、近似图漏边对照、独立请求 benchmark、预热/重复/失败处理、多模型服务计费、离线成本摊销、重复题目统计与分批 embedding 恢复。运行方式见[基础设施说明](docs/matrix_infrastructure_v032_20261121.md)。本轮只做基础设施验证，未运行真实模型效果实验。
 
 **2026-11-21：当前主线升级为 v0.3.2「问题条件下的 tag 矩阵检索＋成熟重排器」。** 使用 `eitr matrix-*`：一次问题需求解析 → 下游事实多行矩阵匹配 → 固定预算候选 → 原文重排、装包和回答。tag 图是可选消融；当前主线不再使用委员会和入口重要性动态配额。包括 live embedding 接口、协议冻结、批量实验、完整回放和隔离评分。本轮复核修复了图扩展过滤、缓存预检、计划记录与评分校验问题，见[审计修复报告](docs/matrix_v3_review_20261121.md)。详见[数学与运行说明](docs/matrix_v3_implementation_20261121.md)、[实现验收报告](docs/matrix_v3_completion_20261121.md)。

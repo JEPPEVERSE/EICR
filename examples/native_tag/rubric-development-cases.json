@@ -1,0 +1,7 @@
+[
+  {"development": true, "question": "What did John use to supplement basketball training?", "reference": "Yoga, strength training", "answer": "Strength training", "expected": 0},
+  {"development": true, "question": "What did John use to supplement basketball training?", "reference": "Yoga, strength training", "answer": "Yoga and strength training", "expected": 1},
+  {"development": true, "question": "When was the meeting?", "reference": "7 May 2023", "answer": "May 7, 2023", "expected": 1},
+  {"development": true, "question": "When was the meeting?", "reference": "7 May 2023", "answer": "8 May 2023", "expected": 0},
+  {"development": true, "question": "What exercise was mentioned?", "reference": "Yoga", "answer": "Yoga and a marathon on 8 May 2023", "expected": 0}
+]

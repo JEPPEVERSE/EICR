@@ -1,0 +1,12 @@
+{
+  "phase": "development",
+  "runtime": "/absolute/path/to/frozen-runtime",
+  "assets": ["/absolute/path/to/native-assets.json"],
+  "questions": [{"question_id": "previously-used-development-id", "owner": "conv-26", "snapshot": "frozen-native", "category": 1, "question": "Replace with the frozen development question"}],
+  "model": {"provider": "deepseek", "model": "deepseek-flash", "endpoint": "https://api.deepseek.com", "api_key_env": "DEEPSEEK_API_KEY"},
+  "embedding": {"identity": {"provider": "local", "model": "sentence-transformers/all-MiniLM-L6-v2", "revision": "REPLACE_WITH_VERIFIED_MODEL_COMMIT", "dimension": 384, "preprocessing": "replace_newlines_strip", "normalization": "l2"}, "device": "cpu"},
+  "repeats": 1,
+  "seed": 20261122,
+  "prices": null,
+  "judge": null
+}

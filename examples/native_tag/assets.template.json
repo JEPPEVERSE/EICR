@@ -1,0 +1,14 @@
+{
+  "runtime": "/absolute/path/to/frozen-runtime",
+  "owner": "conv-26",
+  "snapshot": "frozen-native",
+  "raw_text": "/absolute/path/to/raw_text.json",
+  "rewrites": "/absolute/path/to/rewrite-records.json",
+  "keywords": "/absolute/path/to/keyword-records.json",
+  "event_embeddings": "/absolute/path/to/event-vectors-by-native-id.json",
+  "event_input_texts": "/absolute/path/to/rewritten-input-text-by-native-id.json",
+  "topic_ids": "/absolute/path/to/topic-ids.json",
+  "topic_embeddings": "/absolute/path/to/topic-vectors.json",
+  "embedding_identity": {"provider": "local", "model": "sentence-transformers/all-MiniLM-L6-v2", "revision": "REPLACE_WITH_VERIFIED_MODEL_COMMIT", "dimension": 384, "preprocessing": "replace_newlines_strip", "normalization": "l2"},
+  "provenance": {"identity_verified": false, "input_texts_verified": false, "cache_receipt": "Fill with the native embedding construction receipt and original cache hash; do not infer model identity from vector dimensions"}
+}

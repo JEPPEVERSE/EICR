@@ -1,0 +1,19 @@
+{
+  "receipts": [
+    "/absolute/path/to/asset.embedding-receipt.json",
+    "/absolute/path/to/calibration.cost-receipt.json",
+    "/absolute/path/to/shadow-acceptance.cost-receipt.json"
+  ],
+  "prices": {
+    "currency": "USD",
+    "effective_date": "REPLACE_WITH_VERIFIED_DATE",
+    "source": "REPLACE_WITH_VERIFIED_PROVIDER_RATES",
+    "rates": []
+  },
+  "rebuild_policy": {
+    "trigger": "REPLACE_WITH_DECLARED_SNAPSHOT_UPDATE_POLICY",
+    "period": "month",
+    "expected_builds": null,
+    "queries_per_period": null
+  }
+}

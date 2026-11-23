@@ -1,0 +1,76 @@
+{
+  "status": "design_only_not_run_protocol",
+  "date": "2026-11-22",
+  "scope": "replace_native_tag_scoring_only",
+  "reference_upstream_commit": "7441506db984b7c4da32e8dbeb2527f2e351270a",
+  "local_reference_dirty": true,
+  "primary_arms": [
+    "native",
+    "cheap_all"
+  ],
+  "diagnostic_arm": "cheap_initial",
+  "primary_unit": "owner/snapshot/key/tag",
+  "score": {
+    "kind": "source_deduplicated_top_m_mean_nonnegative_cosine",
+    "m": 3,
+    "calibration": "request_balanced_isotonic_teacher_native_scores",
+    "stage_specific_min_calls": 20,
+    "teacher_bins": [
+      "zero",
+      "positive_below_0.7",
+      "at_least_0.7"
+    ],
+    "underpowered_stage": "pooled_calibration_if_supported_else_stop"
+  },
+  "development_questions_max": 16,
+  "evaluation": {
+    "owners": 4,
+    "categories": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "questions_per_owner_category": 2,
+    "questions": 32,
+    "full_pipeline_repeats": 2,
+    "answer_requests": 128,
+    "context_budget_override": null,
+    "native_runtime_limits": "read_and_pin_at_implementation",
+    "primary_judge": "strict_complete_answer_frozen_on_development",
+    "secondary_judge": "mragent_lenient",
+    "unresolved_judge_disagreement": "sensitivity_and_inconclusive_if_decision_changes"
+  },
+  "gates": {
+    "stage_a_tag_cost_fraction_min": 0.1,
+    "stage_c_api_cost_reduction_min": 0.15,
+    "stage_c_question_mean_accuracy_delta_min": 0,
+    "owners_with_cost_reduction_min": 3,
+    "failure_rate_delta_max": 0,
+    "fallback_fraction_triggered_calls_max": 0.1,
+    "missing_usage_request_fraction_max": 0.05,
+    "interpretation": "investment_gate_not_significance_or_noninferiority"
+  },
+  "confirmation": {
+    "new_questions": 32,
+    "full_pipeline_repeats": 2,
+    "freeze_selector_and_calibrator": true,
+    "required_before_second_baseline": true
+  },
+  "prices": null,
+  "runtime_manifest": null,
+  "question_manifest": null,
+  "calibration_artifact": null,
+  "forbidden_changes": [
+    "offline_graph_reextraction",
+    "native_event_reader_replacement",
+    "new_tag_tag_graph",
+    "PPR",
+    "committee",
+    "new_query_decomposition",
+    "new_reranker",
+    "matrix_packet_packer",
+    "answer_prompt_change",
+    "gold_conditioned_selection"
+  ]
+}
